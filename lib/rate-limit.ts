@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { ensureSchema, getClient } from "./db";
 
 /** Per-IP fixed window: at most MAX_HITS submissions per WINDOW_MS. */
-const WINDOW_MS = 10 * 60 * 1000;
+const WINDOW_MS = 60 * 1000;
 const MAX_HITS = 5;
 
 export type RateLimitResult = { ok: true } | { ok: false; retryAfterSec: number };

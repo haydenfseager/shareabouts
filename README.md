@@ -69,7 +69,7 @@ Two tables, created on first run (`lib/db.ts`):
 `POST` validation (`lib/validate.ts`): 2–200 points, total length 30 m – 25 km,
 reason trimmed to 280 chars, and **the entire route inside the City of Boston** —
 every vertex and every point along each segment. Each IP may submit **5 routes per
-10 minutes** (`lib/rate-limit.ts`); over that returns `429` with `Retry-After`.
+minute** (`lib/rate-limit.ts`); over that returns `429` with `Retry-After`.
 
 ### Staying inside Boston
 

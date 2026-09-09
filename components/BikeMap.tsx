@@ -263,6 +263,16 @@ function CrosshairPreview({ active, from }: { active: boolean; from: LatLng | nu
   );
 }
 
+/** Clears the highlighted route when the map background (not the line) is clicked. */
+function MapClickClear({ active, onClear }: { active: boolean; onClear: () => void }) {
+  useMapEvents({
+    click() {
+      if (active) onClear();
+    },
+  });
+  return null;
+}
+
 export default function BikeMap() {
   const [routes, setRoutes] = useState<BikeRoute[]>([]);
   const [loading, setLoading] = useState(true);
@@ -277,6 +287,7 @@ export default function BikeMap() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [outsideHint, setOutsideHint] = useState(false);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const isMobile = useIsMobile();
 
   // Clear the "outside Boston" nudge a few seconds after it last fired.
@@ -310,6 +321,24 @@ export default function BikeMap() {
     () => routes.flatMap((r) => sampleLine(r.geometry)),
     [routes],
   );
+
+  // Resolves to null once its route is gone (e.g. deleted, then refetched), so
+  // every consumer below quietly stops showing it — no cleanup effect needed.
+  const selectedRoute = useMemo(
+    () => routes.find((r) => r.id === selectedRouteId) ?? null,
+    [routes, selectedRouteId],
+  );
+
+  // Frame the selected route. On mobile the map stays pinned at the top of the
+  // screen, so no scrolling is needed to see it.
+  useEffect(() => {
+    if (!map || !selectedRoute) return;
+    map.fitBounds(selectedRoute.geometry, { padding: [48, 48], maxZoom: 15 });
+  }, [map, selectedRoute]);
+
+  const selectRoute = useCallback((id: string) => {
+    setSelectedRouteId((current) => (current === id ? null : id));
+  }, []);
 
   const drawing = mode === "draw" && !finished;
   const describing = mode === "draw" && finished;
@@ -358,6 +387,7 @@ export default function BikeMap() {
 
   const startDrawing = useCallback(() => {
     resetDraft();
+    setSelectedRouteId(null);
     setMode("draw");
   }, [resetDraft]);
 
@@ -432,6 +462,8 @@ export default function BikeMap() {
             .filter((r) => r.reason)
             .slice(0, 8)
             .map((r) => ({ id: r.id, reason: r.reason as string, createdAt: r.createdAt }))}
+          selectedRouteId={selectedRouteId}
+          onSelectRoute={selectRoute}
           mode={mode}
           onStartDrawing={startDrawing}
           onCancelDrawing={cancelDrawing}
@@ -522,9 +554,71 @@ export default function BikeMap() {
               ))}
             </>
           )}
+
+          {/* The route belonging to the comment tapped in the sidebar. */}
+          {mode === "view" && selectedRoute && (
+            <>
+              <Polyline
+                positions={selectedRoute.geometry}
+                pathOptions={{ color: "#ffffff", weight: 10, opacity: 0.95 }}
+                interactive={false}
+              />
+              <Polyline
+                positions={selectedRoute.geometry}
+                pathOptions={{ color: "#db2777", weight: 5 }}
+                interactive={false}
+              />
+              {[
+                selectedRoute.geometry[0],
+                selectedRoute.geometry[selectedRoute.geometry.length - 1],
+              ].map((p, i) => (
+                <CircleMarker
+                  key={i}
+                  center={p}
+                  radius={6}
+                  pathOptions={{
+                    color: "#db2777",
+                    weight: 3,
+                    fillColor: "#ffffff",
+                    fillOpacity: 1,
+                  }}
+                />
+              ))}
+            </>
+          )}
+          <MapClickClear
+            active={mode === "view" && !!selectedRoute}
+            onClear={() => setSelectedRouteId(null)}
+          />
         </MapContainer>
 
         {!(isMobile && mode === "draw") && <MapLegend compact={isMobile} />}
+
+        {mode === "view" && selectedRoute && (
+          <div className="absolute left-3 top-3 z-[1000] flex max-w-[min(20rem,calc(100%-1.5rem))] items-start gap-2 rounded-lg bg-white p-3 shadow-xl ring-1 ring-pink-200">
+            <div className="min-w-0">
+              <p className="text-xs leading-snug text-slate-700">
+                {selectedRoute.reason ? `“${selectedRoute.reason}”` : "This route"}
+              </p>
+              <p className="mt-1 text-[10px] text-slate-400">
+                {new Date(selectedRoute.createdAt).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}{" "}
+                · {meters(lineLength(selectedRoute.geometry))}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedRouteId(null)}
+              aria-label="Clear highlight"
+              className="-mr-1 -mt-1 shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {fullscreenDraw && drawing && <Crosshair />}
 

@@ -7,6 +7,8 @@ export function Sidebar({
   loadError,
   routeCount,
   recentReasons,
+  selectedRouteId,
+  onSelectRoute,
   mode,
   onStartDrawing,
   onCancelDrawing,
@@ -15,6 +17,8 @@ export function Sidebar({
   loadError: string | null;
   routeCount: number;
   recentReasons: RecentReason[];
+  selectedRouteId: string | null;
+  onSelectRoute: (id: string) => void;
   mode: "view" | "draw";
   onStartDrawing: () => void;
   onCancelDrawing: () => void;
@@ -59,26 +63,41 @@ export function Sidebar({
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           What people are saying
         </h2>
+        {recentReasons.length > 0 && (
+          <p className="mt-1 text-[11px] text-slate-400">Tap a comment to find its route.</p>
+        )}
         <ul className="mt-2 space-y-2">
           {recentReasons.length === 0 && (
             <li className="text-sm text-slate-400">
               No comments yet. Be the first to explain why a route matters.
             </li>
           )}
-          {recentReasons.map((r) => (
-            <li
-              key={r.id}
-              className="rounded-md bg-slate-50 p-3 text-sm text-slate-700 ring-1 ring-slate-200"
-            >
-              <p className="leading-snug">“{r.reason}”</p>
-              <p className="mt-1 text-[11px] text-slate-400">
-                {new Date(r.createdAt).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })}
-              </p>
-            </li>
-          ))}
+          {recentReasons.map((r) => {
+            const active = r.id === selectedRouteId;
+            return (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onSelectRoute(r.id)}
+                  className={`block w-full rounded-md p-3 text-left text-sm transition-colors ${
+                    active
+                      ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
+                      : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
+                  }`}
+                >
+                  <p className="leading-snug">“{r.reason}”</p>
+                  <p className={`mt-1 text-[11px] ${active ? "text-pink-600" : "text-slate-400"}`}>
+                    {new Date(r.createdAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                    {active && " · shown on map"}
+                  </p>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </div>
 

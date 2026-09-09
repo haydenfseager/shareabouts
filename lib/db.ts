@@ -6,14 +6,29 @@ import type { BikeRoute } from "./types";
 
 export type { BikeRoute };
 
-// Local dev with no env set → a SQLite file at data/routes.db.
-// Production (Vercel) → point TURSO_DATABASE_URL / TURSO_AUTH_TOKEN at a Turso database.
-const DB_URL = process.env.TURSO_DATABASE_URL ?? "file:data/routes.db";
-const DB_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN;
+const LOCAL_FILE_URL = "file:data/routes.db";
 
-if (DB_URL.startsWith("file:")) {
-  const dir = path.dirname(DB_URL.slice("file:".length));
-  if (dir && dir !== ".") mkdirSync(dir, { recursive: true });
+/**
+ * Where to connect. With `TURSO_DATABASE_URL` set we use that (Turso / libSQL).
+ * Otherwise we fall back to a local SQLite file, which only works where the
+ * filesystem is writable (local dev, a VPS with a disk) — on a read-only host
+ * like Vercel this throws a clear "set TURSO_DATABASE_URL" error instead of a
+ * cryptic mkdir crash at import time.
+ */
+function resolveDbUrl(): string {
+  const configured = process.env.TURSO_DATABASE_URL;
+  if (configured) return configured;
+
+  try {
+    mkdirSync(path.dirname(LOCAL_FILE_URL.slice("file:".length)), { recursive: true });
+  } catch (err) {
+    throw new Error(
+      "No database configured for this environment. Set TURSO_DATABASE_URL " +
+        "(and TURSO_AUTH_TOKEN) in your deployment's environment variables. " +
+        `Falling back to a local file failed: ${(err as Error).message}`,
+    );
+  }
+  return LOCAL_FILE_URL;
 }
 
 // Reuse the client and the "schema ready" promise across hot-reloads / warm
@@ -25,7 +40,10 @@ const globalForDb = globalThis as unknown as {
 
 export function getClient(): Client {
   if (!globalForDb.__bikeDb) {
-    globalForDb.__bikeDb = createClient({ url: DB_URL, authToken: DB_AUTH_TOKEN });
+    globalForDb.__bikeDb = createClient({
+      url: resolveDbUrl(),
+      authToken: process.env.TURSO_AUTH_TOKEN,
+    });
   }
   return globalForDb.__bikeDb;
 }

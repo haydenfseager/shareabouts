@@ -39,8 +39,6 @@ const WORLD_RING: LatLng[] = [
 ];
 
 const HEAT_OPTIONS: L.HeatMapOptions = {
-  radius: 18,
-  blur: 22,
   minOpacity: 0.3,
   max: 3,
   maxZoom: 17,
@@ -53,6 +51,21 @@ const HEAT_OPTIONS: L.HeatMapOptions = {
     1.0: "#dc2626",
   },
 };
+
+// The heat radius/blur are pixel values, so a fixed size smears into one blob
+// when the map is zoomed out. These are calibrated for HEAT_BASE_ZOOM and shrink
+// as the map zooms out, keeping corridors legible at a wide view.
+const HEAT_BASE_ZOOM = 13;
+const HEAT_BASE_RADIUS = 18;
+const HEAT_BASE_BLUR = 22;
+
+function heatSizeForZoom(zoom: number): { radius: number; blur: number } {
+  const factor = zoom >= HEAT_BASE_ZOOM ? 1 : 2 ** ((zoom - HEAT_BASE_ZOOM) * 0.6);
+  return {
+    radius: Math.max(6, Math.round(HEAT_BASE_RADIUS * factor)),
+    blur: Math.max(8, Math.round(HEAT_BASE_BLUR * factor)),
+  };
+}
 
 type Mode = "view" | "draw";
 
@@ -82,7 +95,10 @@ function HeatLayer({ points }: { points: LatLng[] }) {
         raf = requestAnimationFrame(tryAdd);
         return;
       }
-      const layer = L.heatLayer(dataRef.current, { ...HEAT_OPTIONS }) as HeatLayerInternal;
+      const layer = L.heatLayer(dataRef.current, {
+        ...HEAT_OPTIONS,
+        ...heatSizeForZoom(map.getZoom()),
+      }) as HeatLayerInternal;
       layer.addTo(map);
       layerRef.current = layer;
     };
@@ -116,6 +132,15 @@ function HeatLayer({ points }: { points: LatLng[] }) {
       layerRef.current.setLatLngs(dataRef.current);
     }
   }, [points, map]);
+
+  // Rescale the heat radius/blur to the current zoom (setOptions redraws).
+  useEffect(() => {
+    const applySize = () => layerRef.current?.setOptions(heatSizeForZoom(map.getZoom()));
+    map.on("zoomend", applySize);
+    return () => {
+      map.off("zoomend", applySize);
+    };
+  }, [map]);
 
   return null;
 }

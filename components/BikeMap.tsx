@@ -177,13 +177,15 @@ function InvalidateOnResize({ dep }: { dep: unknown }) {
   return null;
 }
 
-/** Turns map clicks into route vertices while in draw mode. */
+/** Turns map clicks into route vertices while in draw mode (desktop only). */
 function DrawController({
   active,
+  tapToAdd,
   onAddPoint,
   onHover,
 }: {
   active: boolean;
+  tapToAdd: boolean;
   onAddPoint: (p: LatLng) => void;
   onHover: (p: LatLng | null) => void;
 }) {
@@ -199,7 +201,7 @@ function DrawController({
 
   useMapEvents({
     click(e) {
-      if (active) onAddPoint([e.latlng.lat, e.latlng.lng]);
+      if (active && tapToAdd) onAddPoint([e.latlng.lat, e.latlng.lng]);
     },
     mousemove(e) {
       if (active) onHover([e.latlng.lat, e.latlng.lng]);
@@ -212,10 +214,60 @@ function DrawController({
   return null;
 }
 
+/** Fixed reticle marking the map centre — the point the mobile "Add point" button uses. */
+function Crosshair() {
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-1/2 z-[900] -translate-x-1/2 -translate-y-1/2">
+      <svg width="46" height="46" viewBox="0 0 46 46" aria-hidden="true">
+        <g fill="none" stroke="#ffffff" strokeWidth="5" strokeLinecap="round">
+          <circle cx="23" cy="23" r="10" />
+          <line x1="23" y1="2" x2="23" y2="9" />
+          <line x1="23" y1="37" x2="23" y2="44" />
+          <line x1="2" y1="23" x2="9" y2="23" />
+          <line x1="37" y1="23" x2="44" y2="23" />
+        </g>
+        <g fill="none" stroke="#0e7490" strokeWidth="2.5" strokeLinecap="round">
+          <circle cx="23" cy="23" r="10" />
+          <line x1="23" y1="2" x2="23" y2="9" />
+          <line x1="23" y1="37" x2="23" y2="44" />
+          <line x1="2" y1="23" x2="9" y2="23" />
+          <line x1="37" y1="23" x2="44" y2="23" />
+        </g>
+        <circle cx="23" cy="23" r="2.5" fill="#0e7490" stroke="#ffffff" strokeWidth="1.5" />
+      </svg>
+    </div>
+  );
+}
+
+/** Dashed line from the last placed point to the current map centre (mobile crosshair mode). */
+function CrosshairPreview({ active, from }: { active: boolean; from: LatLng | null }) {
+  const map = useMap();
+  const [center, setCenter] = useState<LatLng>(() => {
+    const c = map.getCenter();
+    return [c.lat, c.lng];
+  });
+
+  useMapEvents({
+    move() {
+      const c = map.getCenter();
+      setCenter([c.lat, c.lng]);
+    },
+  });
+
+  if (!active || !from) return null;
+  return (
+    <Polyline
+      positions={[from, center]}
+      pathOptions={{ color: "#0e7490", weight: 3, dashArray: "6 8", opacity: 0.7 }}
+    />
+  );
+}
+
 export default function BikeMap() {
   const [routes, setRoutes] = useState<BikeRoute[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [map, setMap] = useState<L.Map | null>(null);
 
   const [mode, setMode] = useState<Mode>("view");
   const [draft, setDraft] = useState<LatLng[]>([]);
@@ -296,6 +348,13 @@ export default function BikeMap() {
     () => draft.length >= 2 && !routeInsideBoston(draft),
     [draft],
   );
+
+  // Mobile: add the point under the fixed crosshair (the map's current centre).
+  const addCenterPoint = useCallback(() => {
+    if (!map) return;
+    const c = map.getCenter();
+    addPoint([c.lat, c.lng]);
+  }, [map, addPoint]);
 
   const startDrawing = useCallback(() => {
     resetDraft();
@@ -385,6 +444,7 @@ export default function BikeMap() {
         }`}
       >
         <MapContainer
+          ref={setMap}
           center={BOSTON_CENTER}
           zoom={DEFAULT_ZOOM}
           minZoom={MIN_ZOOM}
@@ -424,7 +484,18 @@ export default function BikeMap() {
             interactive={false}
           />
 
-          <DrawController active={drawing} onAddPoint={addPoint} onHover={setHover} />
+          <DrawController
+            active={drawing}
+            tapToAdd={!isMobile}
+            onAddPoint={addPoint}
+            onHover={setHover}
+          />
+          {fullscreenDraw && (
+            <CrosshairPreview
+              active={drawing}
+              from={draft.length > 0 ? draft[draft.length - 1] : null}
+            />
+          )}
 
           {mode === "draw" && draft.length > 0 && (
             <>
@@ -455,6 +526,8 @@ export default function BikeMap() {
 
         {!(isMobile && mode === "draw") && <MapLegend compact={isMobile} />}
 
+        {fullscreenDraw && drawing && <Crosshair />}
+
         {fullscreenDraw && drawing && (
           <button
             type="button"
@@ -479,6 +552,7 @@ export default function BikeMap() {
             submitting={submitting}
             submitError={submitError}
             onReasonChange={setReason}
+            onAddCenterPoint={addCenterPoint}
             onUndo={undoPoint}
             onClear={resetDraft}
             onFinish={finishDrawing}
@@ -531,6 +605,7 @@ function DrawCard({
   submitting,
   submitError,
   onReasonChange,
+  onAddCenterPoint,
   onUndo,
   onClear,
   onFinish,
@@ -549,6 +624,7 @@ function DrawCard({
   submitting: boolean;
   submitError: string | null;
   onReasonChange: (v: string) => void;
+  onAddCenterPoint: () => void;
   onUndo: () => void;
   onClear: () => void;
   onFinish: () => void;
@@ -570,7 +646,7 @@ function DrawCard({
           <h2 className="text-sm font-semibold text-slate-800">Draw a bike route</h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
             {isMobile
-              ? "Tap along the streets where a bike lane is needed, then Finish. Stay inside the outlined area (Boston)."
+              ? "Pan the map so the crosshair sits on the street, then Add point. The whole route must stay inside Boston (the outlined area)."
               : "Click along the streets where a protected bike lane is needed, then finish. The whole route must stay inside the City of Boston (the outlined area)."}
           </p>
           <dl className="mt-3 flex gap-4 text-xs text-slate-600">
@@ -583,7 +659,16 @@ function DrawCard({
               <dd className="font-semibold">{meters(routeMeters)}</dd>
             </div>
           </dl>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          {isMobile && (
+            <button
+              type="button"
+              onClick={onAddCenterPoint}
+              className="mt-3 w-full rounded-md bg-cyan-700 px-2 py-3 text-sm font-semibold text-white hover:bg-cyan-800 active:bg-cyan-900"
+            >
+              + Add point
+            </button>
+          )}
+          <div className={`grid grid-cols-2 gap-2 ${isMobile ? "mt-2" : "mt-3"}`}>
             <button
               type="button"
               onClick={onUndo}

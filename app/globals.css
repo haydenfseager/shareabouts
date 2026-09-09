@@ -27,6 +27,8 @@ body {
 .leaflet-container {
   background: #eef1f4;
   font: inherit;
+  /* Don't let a swipe on the map chain into scrolling the page. */
+  overscroll-behavior: contain;
 }
 .leaflet-pane,
 .leaflet-top,

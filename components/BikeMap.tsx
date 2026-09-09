@@ -150,6 +150,33 @@ function HeatLayer({ points }: { points: LatLng[] }) {
   return null;
 }
 
+/** True below Tailwind's `md` breakpoint (< 768px). */
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isMobile;
+}
+
+/** Tell Leaflet to re-measure when its container is resized by a layout change. */
+function InvalidateOnResize({ dep }: { dep: unknown }) {
+  const map = useMap();
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => map.invalidateSize());
+    const t = setTimeout(() => map.invalidateSize(), 200);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+    };
+  }, [dep, map]);
+  return null;
+}
+
 /** Turns map clicks into route vertices while in draw mode. */
 function DrawController({
   active,
@@ -198,6 +225,7 @@ export default function BikeMap() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [outsideHint, setOutsideHint] = useState(false);
+  const isMobile = useIsMobile();
 
   // Clear the "outside Boston" nudge a few seconds after it last fired.
   useEffect(() => {
@@ -233,6 +261,8 @@ export default function BikeMap() {
 
   const drawing = mode === "draw" && !finished;
   const describing = mode === "draw" && finished;
+  // On phones, drawing takes over the whole screen: hide the sidebar and let the map fill it.
+  const fullscreenDraw = isMobile && mode === "draw";
   const draftMeters = useMemo(() => lineLength(draft), [draft]);
 
   const resetDraft = useCallback(() => {
@@ -334,20 +364,26 @@ export default function BikeMap() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
-      <Sidebar
-        loading={loading}
-        loadError={loadError}
-        routeCount={routes.length}
-        recentReasons={routes
-          .filter((r) => r.reason)
-          .slice(0, 8)
-          .map((r) => ({ id: r.id, reason: r.reason as string, createdAt: r.createdAt }))}
-        mode={mode}
-        onStartDrawing={startDrawing}
-        onCancelDrawing={cancelDrawing}
-      />
+      {!fullscreenDraw && (
+        <Sidebar
+          loading={loading}
+          loadError={loadError}
+          routeCount={routes.length}
+          recentReasons={routes
+            .filter((r) => r.reason)
+            .slice(0, 8)
+            .map((r) => ({ id: r.id, reason: r.reason as string, createdAt: r.createdAt }))}
+          mode={mode}
+          onStartDrawing={startDrawing}
+          onCancelDrawing={cancelDrawing}
+        />
+      )}
 
-      <div className="relative order-1 h-[48vh] shrink-0 md:order-2 md:h-auto md:min-h-0 md:flex-1">
+      <div
+        className={`relative md:order-2 md:h-auto md:min-h-0 md:flex-1 ${
+          fullscreenDraw ? "order-1 flex-1" : "order-1 h-[48vh] shrink-0"
+        }`}
+      >
         <MapContainer
           center={BOSTON_CENTER}
           zoom={DEFAULT_ZOOM}
@@ -359,6 +395,7 @@ export default function BikeMap() {
           className="absolute inset-0 h-full w-full"
         >
           <AttributionControl position="bottomright" prefix={false} />
+          <InvalidateOnResize dep={fullscreenDraw} />
           <TileLayer
             attribution='&copy; <a href="https://www.esri.com/">Esri</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
@@ -416,12 +453,24 @@ export default function BikeMap() {
           )}
         </MapContainer>
 
-        <MapLegend />
+        {!(isMobile && mode === "draw") && <MapLegend compact={isMobile} />}
+
+        {fullscreenDraw && drawing && (
+          <button
+            type="button"
+            onClick={cancelDrawing}
+            aria-label="Cancel drawing"
+            className="absolute right-3 top-3 z-[1000] flex h-9 w-9 items-center justify-center rounded-full bg-white text-lg leading-none text-slate-600 shadow-lg ring-1 ring-black/10"
+          >
+            ✕
+          </button>
+        )}
 
         {mode === "draw" && (
           <DrawCard
             drawing={drawing}
             describing={describing}
+            isMobile={isMobile}
             pointCount={draft.length}
             meters={draftMeters}
             outsideHint={outsideHint}
@@ -443,13 +492,23 @@ export default function BikeMap() {
   );
 }
 
-function MapLegend() {
+function MapLegend({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="pointer-events-none absolute bottom-6 right-3 z-[1000] rounded-md bg-white/90 p-3 text-xs shadow-md ring-1 ring-black/10 backdrop-blur">
-      <div className="mb-1 font-semibold text-slate-700">Demand</div>
-      <div className="h-2 w-40 rounded-full bg-[linear-gradient(to_right,#1d4ed8,#0891b2,#16a34a,#eab308,#f97316,#dc2626)]" />
+    <div
+      className={`pointer-events-none absolute z-[1000] rounded-md bg-white/90 shadow-md ring-1 ring-black/10 backdrop-blur ${
+        compact ? "bottom-2 right-2 p-2" : "bottom-6 right-3 p-3"
+      }`}
+    >
+      <div className={`font-semibold text-slate-700 ${compact ? "mb-0.5 text-[11px]" : "mb-1 text-xs"}`}>
+        Demand
+      </div>
+      <div
+        className={`rounded-full bg-[linear-gradient(to_right,#1d4ed8,#0891b2,#16a34a,#eab308,#f97316,#dc2626)] ${
+          compact ? "h-1.5 w-28" : "h-2 w-40"
+        }`}
+      />
       <div className="mt-1 flex justify-between text-[10px] text-slate-500">
-        <span>fewer requests</span>
+        <span>fewer</span>
         <span>more</span>
       </div>
     </div>
@@ -463,6 +522,7 @@ function meters(m: number): string {
 function DrawCard({
   drawing,
   describing,
+  isMobile,
   pointCount,
   meters: routeMeters,
   outsideHint,
@@ -480,6 +540,7 @@ function DrawCard({
 }: {
   drawing: boolean;
   describing: boolean;
+  isMobile: boolean;
   pointCount: number;
   meters: number;
   outsideHint: boolean;
@@ -496,13 +557,21 @@ function DrawCard({
   onSubmit: () => void;
 }) {
   return (
-    <div className="absolute left-3 top-3 z-[1000] w-72 rounded-lg bg-white p-4 shadow-xl ring-1 ring-black/10">
+    <div
+      className={
+        isMobile
+          ? "absolute inset-x-0 bottom-0 z-[1000] max-h-[60vh] overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-[0_-6px_24px_rgba(0,0,0,0.18)] ring-1 ring-black/10"
+          : "absolute left-3 top-3 z-[1000] w-72 rounded-lg bg-white p-4 shadow-xl ring-1 ring-black/10"
+      }
+    >
+      {isMobile && <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-slate-300" />}
       {drawing && (
         <>
           <h2 className="text-sm font-semibold text-slate-800">Draw a bike route</h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Click along the streets where a protected bike lane is needed, then finish. The whole
-            route must stay inside the City of Boston (the outlined area).
+            {isMobile
+              ? "Tap along the streets where a bike lane is needed, then Finish. Stay inside the outlined area (Boston)."
+              : "Click along the streets where a protected bike lane is needed, then finish. The whole route must stay inside the City of Boston (the outlined area)."}
           </p>
           <dl className="mt-3 flex gap-4 text-xs text-slate-600">
             <div>
@@ -519,7 +588,7 @@ function DrawCard({
               type="button"
               onClick={onUndo}
               disabled={pointCount === 0}
-              className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              className="rounded-md border border-slate-300 px-2 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               Undo point
             </button>
@@ -527,7 +596,7 @@ function DrawCard({
               type="button"
               onClick={onClear}
               disabled={pointCount === 0}
-              className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              className="rounded-md border border-slate-300 px-2 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               Clear
             </button>
@@ -535,14 +604,14 @@ function DrawCard({
               type="button"
               onClick={onFinish}
               disabled={pointCount < 2 || leavesBoston}
-              className="rounded-md bg-cyan-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-cyan-800 disabled:opacity-40"
+              className="rounded-md bg-cyan-700 px-2 py-2 text-xs font-semibold text-white hover:bg-cyan-800 disabled:opacity-40"
             >
               Finish route
             </button>
             <button
               type="button"
               onClick={onCancel}
-              className="rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50"
+              className="rounded-md px-2 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50"
             >
               Cancel
             </button>
@@ -558,9 +627,11 @@ function DrawCard({
               This route leaves the City of Boston — it can’t be submitted.
             </p>
           )}
-          <p className="mt-2 text-[10px] text-slate-400">
-            Shortcuts: Enter finishes · Backspace removes a point · Esc cancels
-          </p>
+          {!isMobile && (
+            <p className="mt-2 text-[10px] text-slate-400">
+              Shortcuts: Enter finishes · Backspace removes a point · Esc cancels
+            </p>
+          )}
         </>
       )}
 
@@ -588,7 +659,7 @@ function DrawCard({
               type="button"
               onClick={onBackToDrawing}
               disabled={submitting}
-              className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              className="rounded-md border border-slate-300 px-2 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               Back
             </button>
@@ -596,7 +667,7 @@ function DrawCard({
               type="button"
               onClick={onSubmit}
               disabled={submitting}
-              className="rounded-md bg-cyan-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-cyan-800 disabled:opacity-60"
+              className="rounded-md bg-cyan-700 px-2 py-2 text-xs font-semibold text-white hover:bg-cyan-800 disabled:opacity-60"
             >
               {submitting ? "Submitting…" : "Add to map"}
             </button>

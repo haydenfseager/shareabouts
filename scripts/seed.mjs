@@ -24,9 +24,9 @@ db.exec(`
   );
 `);
 
-/** Massachusetts Ave spine, Harvard Bridge down to Boston Medical Center. */
+/** Massachusetts Ave spine, Back Bay down to Boston Medical Center. */
 const MASS_AVE = [
-  [42.358, -71.093],
+  [42.3541, -71.0902],
   [42.352, -71.0885],
   [42.349, -71.087],
   [42.3475, -71.085],
@@ -82,7 +82,7 @@ const seeds = [
     geometry: [
       [42.3489, -71.0954],
       [42.35, -71.105],
-      [42.3535, -71.111],
+      [42.351, -71.11],
       [42.3515, -71.118],
     ],
     reason: "Comm Ave through BU is terrifying with the buses and the tracks.",
@@ -93,7 +93,7 @@ const seeds = [
       [42.3489, -71.0954],
       [42.3495, -71.102],
       [42.3505, -71.108],
-      [42.3532, -71.1112],
+      [42.3514, -71.1105],
     ],
     reason: "Please connect the BU Bridge to Kenmore properly.",
     createdAt: daysAgo(6),

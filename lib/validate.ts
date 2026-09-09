@@ -1,12 +1,10 @@
 import { lineLength, type LatLng } from "./geo";
-import { fractionInsideBoston } from "./boston-boundary";
+import { routeInsideBoston } from "./boston-boundary";
 
 export const MAX_REASON_LENGTH = 280;
 export const MAX_VERTICES = 200;
 export const MIN_ROUTE_METERS = 30;
 export const MAX_ROUTE_METERS = 25_000;
-/** A route is accepted when at least this share of its length is inside Boston. */
-export const MIN_BOSTON_FRACTION = 0.5;
 
 export type ParsedRoute = { geometry: LatLng[]; reason: string | null };
 
@@ -53,8 +51,8 @@ export function parseRouteInput(body: unknown): Result {
     return { ok: false, error: "That route is longer than any realistic bike corridor." };
   }
 
-  if (fractionInsideBoston(points) < MIN_BOSTON_FRACTION) {
-    return { ok: false, error: "Most of the route must be within the City of Boston." };
+  if (!routeInsideBoston(points)) {
+    return { ok: false, error: "The entire route must stay within the City of Boston." };
   }
 
   let cleanReason: string | null = null;

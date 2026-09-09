@@ -25,8 +25,13 @@ import {
   sampleLine,
   type LatLng,
 } from "@/lib/geo";
-import { BOSTON_BOUNDARY, fractionInsideBoston, pointInBoston } from "@/lib/boston-boundary";
-import { MAX_REASON_LENGTH, MIN_BOSTON_FRACTION } from "@/lib/validate";
+import {
+  BOSTON_BOUNDARY,
+  pointInBoston,
+  routeInsideBoston,
+  segmentInsideBoston,
+} from "@/lib/boston-boundary";
+import { MAX_REASON_LENGTH } from "@/lib/validate";
 import type { BikeRoute } from "@/lib/types";
 import { Sidebar } from "./Sidebar";
 
@@ -239,18 +244,26 @@ export default function BikeMap() {
     setOutsideHint(false);
   }, []);
 
-  // Route vertices must land inside the City of Boston; ignore clicks that don't.
-  const addPoint = useCallback((p: LatLng) => {
-    if (!pointInBoston(p)) {
-      setOutsideHint(true);
-      return;
-    }
-    setOutsideHint(false);
-    setDraft((d) => [...d, p]);
-  }, []);
+  // The route must stay entirely within Boston: reject a click that lands
+  // outside, or one whose segment from the previous point would leave the city.
+  const addPoint = useCallback(
+    (p: LatLng) => {
+      if (!pointInBoston(p)) {
+        setOutsideHint(true);
+        return;
+      }
+      if (draft.length > 0 && !segmentInsideBoston(draft[draft.length - 1], p)) {
+        setOutsideHint(true);
+        return;
+      }
+      setOutsideHint(false);
+      setDraft((d) => [...d, p]);
+    },
+    [draft],
+  );
 
-  const draftInsideFraction = useMemo(
-    () => (draft.length >= 2 ? fractionInsideBoston(draft) : 1),
+  const draftLeavesBoston = useMemo(
+    () => draft.length >= 2 && !routeInsideBoston(draft),
     [draft],
   );
 
@@ -277,8 +290,8 @@ export default function BikeMap() {
 
   const submit = useCallback(async () => {
     if (draft.length < 2) return;
-    if (fractionInsideBoston(draft) < MIN_BOSTON_FRACTION) {
-      setSubmitError("Most of the route must be within the City of Boston.");
+    if (!routeInsideBoston(draft)) {
+      setSubmitError("The entire route must stay within the City of Boston.");
       return;
     }
     setSubmitting(true);
@@ -412,7 +425,7 @@ export default function BikeMap() {
             pointCount={draft.length}
             meters={draftMeters}
             outsideHint={outsideHint}
-            mostlyOutside={draft.length >= 2 && draftInsideFraction < MIN_BOSTON_FRACTION}
+            leavesBoston={draftLeavesBoston}
             reason={reason}
             submitting={submitting}
             submitError={submitError}
@@ -453,7 +466,7 @@ function DrawCard({
   pointCount,
   meters: routeMeters,
   outsideHint,
-  mostlyOutside,
+  leavesBoston,
   reason,
   submitting,
   submitError,
@@ -470,7 +483,7 @@ function DrawCard({
   pointCount: number;
   meters: number;
   outsideHint: boolean;
-  mostlyOutside: boolean;
+  leavesBoston: boolean;
   reason: string;
   submitting: boolean;
   submitError: string | null;
@@ -488,8 +501,8 @@ function DrawCard({
         <>
           <h2 className="text-sm font-semibold text-slate-800">Draw a bike route</h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Click along the streets where a protected bike lane is needed. Add as many points as you
-            like, then finish.
+            Click along the streets where a protected bike lane is needed, then finish. The whole
+            route must stay inside the City of Boston (the outlined area).
           </p>
           <dl className="mt-3 flex gap-4 text-xs text-slate-600">
             <div>
@@ -521,7 +534,7 @@ function DrawCard({
             <button
               type="button"
               onClick={onFinish}
-              disabled={pointCount < 2 || mostlyOutside}
+              disabled={pointCount < 2 || leavesBoston}
               className="rounded-md bg-cyan-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-cyan-800 disabled:opacity-40"
             >
               Finish route
@@ -536,12 +549,13 @@ function DrawCard({
           </div>
           {outsideHint && (
             <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 ring-1 ring-amber-200">
-              That spot is outside the City of Boston. Click within the outlined area.
+              That would take the route outside Boston. Keep every point and segment inside the
+              outlined area.
             </p>
           )}
-          {mostlyOutside && !outsideHint && (
+          {leavesBoston && !outsideHint && (
             <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 ring-1 ring-amber-200">
-              Most of this route is outside Boston — it can’t be submitted yet.
+              This route leaves the City of Boston — it can’t be submitted.
             </p>
           )}
           <p className="mt-2 text-[10px] text-slate-400">

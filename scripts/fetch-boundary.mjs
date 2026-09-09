@@ -80,34 +80,34 @@ export function pointInBoston([lat, lng]: LatLng): boolean {
   return inside;
 }
 
+/** Resolution (metres) at which straight segments are sampled for boundary checks. */
+const SEGMENT_SAMPLE_METERS = 15;
+
 /**
- * Length-weighted share of a polyline that falls inside Boston, from 0 to 1.
- * Each segment is walked at ~50 m resolution and its length credited to
- * "inside" or "outside" based on the midpoint of each step.
+ * True when the straight segment a→b stays entirely inside Boston: \`b\` itself
+ * plus every ~15 m sample between the endpoints must be inside. (\`a\` is assumed
+ * already checked as the previous point.)
  */
-export function fractionInsideBoston(points: LatLng[]): number {
-  if (points.length === 1) return pointInBoston(points[0]) ? 1 : 0;
-
-  let insideMeters = 0;
-  let totalMeters = 0;
-
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1];
-    const b = points[i];
-    const segMeters = haversine(a, b);
-    if (segMeters === 0) continue;
-    totalMeters += segMeters;
-
-    const steps = Math.max(1, Math.ceil(segMeters / 50));
-    const stepMeters = segMeters / steps;
-    for (let s = 0; s < steps; s++) {
-      const t = (s + 0.5) / steps;
-      const mid: LatLng = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-      if (pointInBoston(mid)) insideMeters += stepMeters;
-    }
+export function segmentInsideBoston(a: LatLng, b: LatLng): boolean {
+  if (!pointInBoston(b)) return false;
+  const segMeters = haversine(a, b);
+  const steps = Math.max(1, Math.ceil(segMeters / SEGMENT_SAMPLE_METERS));
+  for (let s = 1; s < steps; s++) {
+    const t = s / steps;
+    const mid: LatLng = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    if (!pointInBoston(mid)) return false;
   }
+  return true;
+}
 
-  return totalMeters === 0 ? 0 : insideMeters / totalMeters;
+/** True only when the whole polyline — every vertex and every segment — is inside Boston. */
+export function routeInsideBoston(points: LatLng[]): boolean {
+  if (points.length === 0) return false;
+  if (!pointInBoston(points[0])) return false;
+  for (let i = 1; i < points.length; i++) {
+    if (!segmentInsideBoston(points[i - 1], points[i])) return false;
+  }
+  return true;
 }
 `;
 

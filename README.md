@@ -6,7 +6,7 @@ want a protected bike lane. Every submission is sampled into points and added to
 so the corridors the whole city keeps asking for glow hottest.
 
 - Anonymous — no accounts, no login.
-- Routes must lie mostly within the City of Boston municipal limits.
+- Routes must lie entirely within the City of Boston municipal limits.
 - Optional one-line "reason" per route, shown in the sidebar.
 
 ## Stack
@@ -51,8 +51,8 @@ One table, `routes`, in `data/routes.db` (git-ignored, created on first run):
 | `POST` | `/api/routes` | `{ geometry: [[lat,lng],…], reason? }` | `201 { route }` / `422 { error }` |
 
 `POST` validation (`lib/validate.ts`): 2–200 points, total length 30 m – 25 km,
-reason trimmed to 280 chars, and **at least 50 % of the route length inside the
-City of Boston** (`MIN_BOSTON_FRACTION`).
+reason trimmed to 280 chars, and **the entire route inside the City of Boston** —
+every vertex and every point along each segment.
 
 ### Staying inside Boston
 
@@ -61,13 +61,15 @@ City of Boston** (`MIN_BOSTON_FRACTION`).
 `npm run boundary`). From it:
 
 - `pointInBoston(p)` — ray-casting point-in-polygon test.
-- `fractionInsideBoston(points)` — walks the polyline at ~50 m resolution and
-  returns the share of its length that falls inside the city.
+- `segmentInsideBoston(a, b)` — `b` plus every ~15 m sample along the segment must
+  be inside, so a straight line between two in-city points can't cut a corner
+  through a neighbouring town.
+- `routeInsideBoston(points)` — every vertex and every segment inside.
 
-The server rejects a submission below the 50 % threshold. The client uses the same
+The server rejects any route that isn't fully inside. The client uses the same
 functions to (a) shade everything outside the boundary while you draw, (b) refuse
-individual clicks that land outside it, and (c) disable **Finish** if the route so
-far is mostly outside — so you get the feedback before hitting submit.
+a click whose point — or whose segment from the previous point — would leave the
+city, and (c) disable **Finish** if the drafted route leaves Boston at all.
 
 ### Frontend
 

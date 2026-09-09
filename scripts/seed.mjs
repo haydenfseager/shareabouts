@@ -2,26 +2,32 @@
 // heatmap has something to show on first run. Safe to re-run: it clears the
 // `routes` table first.
 //
-//   node scripts/seed.mjs
+//   node scripts/seed.mjs                       # local file (data/routes.db)
+//   TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... node scripts/seed.mjs   # remote
 //
 // Several requests deliberately overlap along Massachusetts Avenue so that
 // corridor renders as the clear hotspot.
 
-import { DatabaseSync } from "node:sqlite";
+import { createClient } from "@libsql/client";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
-const DB_PATH = process.env.BIKE_DB_PATH ?? path.join(process.cwd(), "data", "routes.db");
-mkdirSync(path.dirname(DB_PATH), { recursive: true });
+const DB_URL = process.env.TURSO_DATABASE_URL ?? "file:data/routes.db";
+const DB_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN;
 
-const db = new DatabaseSync(DB_PATH);
-db.exec(`
+if (DB_URL.startsWith("file:")) {
+  const dir = path.dirname(DB_URL.slice("file:".length));
+  if (dir && dir !== ".") mkdirSync(dir, { recursive: true });
+}
+
+const db = createClient({ url: DB_URL, authToken: DB_AUTH_TOKEN });
+await db.execute(`
   CREATE TABLE IF NOT EXISTS routes (
     id         TEXT PRIMARY KEY,
     geometry   TEXT NOT NULL,
     reason     TEXT,
     created_at TEXT NOT NULL
-  );
+  )
 `);
 
 /** Massachusetts Ave spine, Back Bay down to Boston Medical Center. */
@@ -207,14 +213,16 @@ const seeds = [
   },
 ];
 
-db.exec("DELETE FROM routes;");
-const insert = db.prepare(
-  "INSERT INTO routes (id, geometry, reason, created_at) VALUES (?, ?, ?, ?)",
+await db.batch(
+  [
+    { sql: "DELETE FROM routes", args: [] },
+    ...seeds.map((s) => ({
+      sql: "INSERT INTO routes (id, geometry, reason, created_at) VALUES (?, ?, ?, ?)",
+      args: [crypto.randomUUID(), JSON.stringify(s.geometry), s.reason, s.createdAt],
+    })),
+  ],
+  "write",
 );
-for (const s of seeds) {
-  insert.run(crypto.randomUUID(), JSON.stringify(s.geometry), s.reason, s.createdAt);
-}
 
-const { n } = db.prepare("SELECT COUNT(*) AS n FROM routes").get();
-console.log(`Seeded ${n} routes into ${DB_PATH}`);
-db.close();
+const rs = await db.execute("SELECT COUNT(*) AS n FROM routes");
+console.log(`Seeded ${Number(rs.rows[0].n)} routes into ${DB_URL}`);

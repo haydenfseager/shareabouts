@@ -11,6 +11,7 @@
     "boundary": "node scripts/fetch-boundary.mjs"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "leaflet": "^1.9.4",
     "leaflet.heat": "^0.2.0",
     "next": "16.3.4",

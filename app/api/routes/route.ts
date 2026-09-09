@@ -1,16 +1,25 @@
 import { NextResponse } from "next/server";
 import { insertRoute, listRoutes } from "@/lib/db";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { parseRouteInput } from "@/lib/validate";
 
 // Contributions change the data on every POST, so never cache these responses.
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const routes = listRoutes();
+  const routes = await listRoutes();
   return NextResponse.json({ routes, count: routes.length });
 }
 
 export async function POST(request: Request) {
+  const limit = await checkRateLimit(clientIp(request));
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: "Too many submissions from your network. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -23,6 +32,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error }, { status: 422 });
   }
 
-  const route = insertRoute(parsed.value.geometry, parsed.value.reason);
+  const route = await insertRoute(parsed.value.geometry, parsed.value.reason);
   return NextResponse.json({ route }, { status: 201 });
 }

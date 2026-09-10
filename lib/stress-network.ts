@@ -4,7 +4,7 @@
 
 export const STRESS_DATASET = {
   label: "Existing network",
-  blurb: "Boston's current bikeable streets, scored by traffic stress",
+  blurb: "Boston's current bikeable streets",
   /** Static path served from public/. */
   path: "/stress/existing.geojson",
 } as const;

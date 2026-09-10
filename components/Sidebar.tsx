@@ -5,12 +5,6 @@ import { STRESS_DATASET } from "@/lib/stress-network";
 
 type RecentReason = { id: string; reason: string; createdAt: string };
 
-// The BCU logo is org-approved but kept out of the public repo. Locally it's
-// public/bcu-logo.jpg (gitignored); on Vercel, set NEXT_PUBLIC_BCU_LOGO_URL to a
-// hosted copy (e.g. a Vercel Blob URL). If neither resolves, the <img> onError
-// hides the whole row.
-const BCU_LOGO_SRC = process.env.NEXT_PUBLIC_BCU_LOGO_URL || "/bcu-logo.jpg";
-
 export function Sidebar({
   loading,
   loadError,
@@ -293,20 +287,13 @@ export function Sidebar({
 
       <div className="mt-auto border-t border-slate-200 pt-4">
         <div className="flex items-center gap-2.5">
-          {/* Logo is intentionally untracked (see BCU_LOGO_SRC); hide the row if it won't load.
-              Plain <img> (not next/image) so a missing asset just 404s and hides,
-              rather than erroring through the image-optimizer pipeline. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={BCU_LOGO_SRC}
+            src="/bcu-logo.jpg"
             alt="Boston Cyclists Union"
             width={40}
             height={40}
             className="h-10 w-10 shrink-0 rounded-full"
-            onError={(e) => {
-              const row = e.currentTarget.parentElement;
-              if (row) row.style.display = "none";
-            }}
           />
           <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Boston Cyclists Union

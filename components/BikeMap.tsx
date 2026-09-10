@@ -695,7 +695,10 @@ export default function BikeMap() {
           <TileLayer
             attribution='&copy; <a href="https://www.esri.com/">Esri</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-            maxZoom={16}
+            // Esri's Light Gray Canvas only has tiles to z16. Without maxNativeZoom
+            // the layer goes blank past 16; with it, Leaflet upscales z16 tiles.
+            maxNativeZoom={16}
+            maxZoom={MAX_ZOOM}
           />
 
           {/* Hidden during the draw flow so the existing demand can't steer where people route. */}

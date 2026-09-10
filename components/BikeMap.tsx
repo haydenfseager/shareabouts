@@ -494,7 +494,8 @@ export default function BikeMap() {
             maxZoom={16}
           />
 
-          <HeatLayer points={heatPoints} />
+          {/* Hidden during the draw flow so the existing demand can't steer where people route. */}
+          {mode === "view" && <HeatLayer points={heatPoints} />}
 
           {/* City-limits outline, always visible; a dimming mask over everything outside while drawing. */}
           {drawing && (
@@ -592,7 +593,8 @@ export default function BikeMap() {
           />
         </MapContainer>
 
-        {!(isMobile && mode === "draw") && <MapLegend compact={isMobile} />}
+        {/* The legend only describes the heat layer, so it hides whenever the heat does. */}
+        {mode === "view" && <MapLegend compact={isMobile} />}
 
         {mode === "view" && selectedRoute && (
           <div className="absolute left-3 top-3 z-[1000] flex max-w-[min(20rem,calc(100%-1.5rem))] items-start gap-2 rounded-lg bg-white p-3 shadow-xl ring-1 ring-pink-200">

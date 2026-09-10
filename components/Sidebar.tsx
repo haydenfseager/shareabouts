@@ -54,6 +54,20 @@ export function Sidebar({
   const showRankings = routeCount >= 3;
   return (
     <aside className="order-2 flex w-full min-h-0 flex-1 flex-col gap-5 overflow-y-auto border-t border-slate-200 bg-white p-5 md:order-1 md:w-80 md:flex-none md:border-t-0 md:border-r">
+      <div className="flex items-center gap-2.5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/bcu-logo.jpg"
+          alt="Boston Cyclists Union"
+          width={40}
+          height={40}
+          className="h-10 w-10 shrink-0 rounded-full"
+        />
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          Boston Cyclists Union
+        </span>
+      </div>
+
       <div>
         <h1 className="text-lg font-bold text-slate-900">Boston Bike Lane Priorities</h1>
         <p className="mt-1 text-sm leading-relaxed text-slate-600">

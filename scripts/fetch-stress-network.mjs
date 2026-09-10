@@ -21,17 +21,6 @@ const SOURCES = [
     url: BASE + "default-annotated-geojson.json",
     keep: (p) => ({ lts: p.lts ?? null, name: p.name ?? null, osmId: p.osmId ?? null }),
   },
-  {
-    out: "go-boston.geojson",
-    url: BASE + "GoBoston/go-boston-annotated-geojson.json",
-    keep: (p) => ({
-      lts: p.lts ?? null,
-      name: p.name ?? null,
-      osmId: p.osmId ?? null,
-      goBoston: p.goBoston ?? null, // "priority" | "future"
-      project: p.project ?? null,
-    }),
-  },
 ];
 
 const round = (n) => Math.round(n * 1e5) / 1e5;

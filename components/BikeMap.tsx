@@ -50,9 +50,8 @@ import {
   LTS_COLOR,
   LTS_LABEL,
   STRESS_ATTRIBUTION,
-  STRESS_DATASETS,
+  STRESS_DATASET,
   ltsColor,
-  type StressDatasetId,
   type StressFeatureProps,
 } from "@/lib/stress-network";
 import { Sidebar } from "./Sidebar";
@@ -221,10 +220,19 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch] ?? ch);
 }
 
-/** LTS colour ramp for a stress segment; grey when the score is unknown. */
-function stressLineStyle(feature?: Feature<Geometry>): L.PathOptions {
-  const props = feature?.properties as StressFeatureProps | undefined;
-  return { color: ltsColor(props?.lts ?? null), weight: 2, opacity: 0.75 };
+/**
+ * Style for a stress segment. With the breakdown off the whole network is drawn
+ * in one colour (LTS 1 green); with it on each segment takes its LTS colour.
+ */
+function makeStressLineStyle(breakdown: boolean) {
+  return (feature?: Feature<Geometry>): L.PathOptions => {
+    const lts = (feature?.properties as StressFeatureProps | undefined)?.lts ?? null;
+    return {
+      color: breakdown ? ltsColor(lts) : LTS_COLOR[1],
+      weight: 3,
+      opacity: 0.75,
+    };
+  };
 }
 
 /** Popup with the street name, its LTS label and a link to the OSM way. */
@@ -243,34 +251,26 @@ function bindStressPopup(feature: Feature<Geometry>, layer: L.Layer): void {
 }
 
 /**
- * The active traffic-stress dataset, drawn to a shared canvas in a dedicated
- * low-z pane so the lines sit under the heatmap and the drawn/highlight layers
- * but over the base tiles. Remounted (via `key` at the call site) when the
- * dataset switches, since react-leaflet's <GeoJSON> ignores later `data` changes.
+ * The traffic-stress network, drawn to a shared canvas in a dedicated low-z pane
+ * so the lines sit under the heatmap and the drawn/highlight layers but over the
+ * base tiles. Mounted only while the overlay is on. Flipping the breakdown passes
+ * a new `style` function, which react-leaflet re-applies in place (no remount).
  */
 function StressLayer({
   data,
   renderer,
+  style,
 }: {
   data: StressCollection;
   renderer: L.Renderer;
+  style: (feature?: Feature<Geometry>) => L.PathOptions;
 }) {
-  const map = useMap();
-  // Leaflet auto-adds the shared canvas renderer to the map when the first path
-  // mounts; drop it on unmount so switching datasets or toggling the overlay off
-  // leaves nothing behind in the "stress" pane.
-  useEffect(
-    () => () => {
-      if (map.hasLayer(renderer)) map.removeLayer(renderer);
-    },
-    [map, renderer],
-  );
   return (
     <CanvasGeoJSON
       data={data}
       pane="stress"
       renderer={renderer}
-      style={stressLineStyle}
+      style={style}
       onEachFeature={bindStressPopup}
       attribution={STRESS_ATTRIBUTION}
     />
@@ -432,21 +432,19 @@ export default function BikeMap() {
   // The point of the last view-mode background tap; non-null while the
   // "routes near here" panel is open.
   const [nearbyQuery, setNearbyQuery] = useState<LatLng | null>(null);
-  // Traffic-stress overlay: which dataset is showing (null = off), plus a
-  // per-id cache of the lazily-fetched FeatureCollections and any fetch errors.
-  const [stressDataset, setStressDataset] = useState<StressDatasetId | null>(null);
-  const [stressData, setStressData] = useState<Partial<Record<StressDatasetId, StressCollection>>>(
-    {},
-  );
-  const [stressErrors, setStressErrors] = useState<Partial<Record<StressDatasetId, string>>>({});
+  // Traffic-stress overlay: whether the network is showing, whether it's split
+  // out by LTS colour, plus the lazily fetched FeatureCollection / fetch error.
+  const [stressOn, setStressOn] = useState(false);
+  const [stressBreakdown, setStressBreakdown] = useState(false);
+  const [stressData, setStressData] = useState<StressCollection | null>(null);
+  const [stressError, setStressError] = useState<string | null>(null);
   const isMobile = useIsMobile();
 
-  const activeStress = stressDataset ? (stressData[stressDataset] ?? null) : null;
-  const stressFailed = stressDataset ? Boolean(stressErrors[stressDataset]) : false;
-  const stressLoading = stressDataset != null && activeStress == null && !stressFailed;
+  const stressLoading = stressOn && stressData == null && stressError == null;
+  const stressStyle = useMemo(() => makeStressLineStyle(stressBreakdown), [stressBreakdown]);
 
   // One shared canvas for the whole stress network (2.5k polylines as SVG is slow).
-  // `tolerance` widens the click target so the 2px lines are easy to tap.
+  // `tolerance` widens the click target so the 3px lines are easy to tap.
   const stressRenderer = useMemo(
     () => L.canvas({ padding: 0.5, tolerance: 4, pane: "stress" }),
     [],
@@ -459,55 +457,43 @@ export default function BikeMap() {
     map.createPane("stress").style.zIndex = "250";
   }, [map]);
 
-  // Fetch a dataset the first time it's selected; cache it (and any error) by id.
+  // Leaflet auto-adds the shared canvas renderer to the map with the first path;
+  // pull it back out once the overlay is fully off so the "stress" pane is empty.
   useEffect(() => {
-    const id = stressDataset;
-    if (!id || stressData[id] || stressErrors[id]) return;
-    const dataset = STRESS_DATASETS.find((d) => d.id === id);
-    if (!dataset) return;
+    if (stressOn || !map) return;
+    if (map.hasLayer(stressRenderer)) map.removeLayer(stressRenderer);
+  }, [stressOn, map, stressRenderer]);
+
+  // Fetch the network the first time it's switched on; keep it once loaded.
+  useEffect(() => {
+    if (!stressOn || stressData || stressError) return;
     let cancelled = false;
-    fetch(dataset.path)
+    fetch(STRESS_DATASET.path)
       .then((res) => {
         if (!res.ok) throw new Error(`Request failed (${res.status})`);
         return res.json() as Promise<StressCollection>;
       })
       .then((data) => {
-        if (!cancelled) setStressData((prev) => ({ ...prev, [id]: data }));
+        if (!cancelled) setStressData(data);
       })
       .catch((err) => {
         if (!cancelled) {
-          setStressErrors((prev) => ({
-            ...prev,
-            [id]: err instanceof Error ? err.message : "Could not load the stress network.",
-          }));
+          setStressError(
+            err instanceof Error ? err.message : "Could not load the stress network.",
+          );
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [stressDataset, stressData, stressErrors]);
+  }, [stressOn, stressData, stressError]);
 
-  // Selecting a dataset (from the sidebar) clears any prior error so it retries.
-  const selectStressDataset = useCallback((id: StressDatasetId | null) => {
-    setStressDataset(id);
-    if (id) {
-      setStressErrors((prev) => {
-        if (!(id in prev)) return prev;
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-    }
+  const toggleStress = useCallback((on: boolean) => {
+    setStressOn(on);
+    if (on) setStressError(null); // let a previously failed load retry
   }, []);
 
-  const retryStress = useCallback(() => {
-    setStressErrors((prev) => {
-      if (!stressDataset || !(stressDataset in prev)) return prev;
-      const next = { ...prev };
-      delete next[stressDataset];
-      return next;
-    });
-  }, [stressDataset]);
+  const retryStress = useCallback(() => setStressError(null), []);
 
   // Clear the "outside Boston" nudge a few seconds after it last fired.
   useEffect(() => {
@@ -845,10 +831,12 @@ export default function BikeMap() {
           onSelectRoute={selectRoute}
           selectedNeighborhood={selectedNeighborhood}
           onSelectNeighborhood={selectNeighborhood}
-          stressDataset={stressDataset}
-          onSelectStressDataset={selectStressDataset}
+          stressOn={stressOn}
+          onToggleStress={toggleStress}
+          stressBreakdown={stressBreakdown}
+          onToggleStressBreakdown={setStressBreakdown}
           stressLoading={stressLoading}
-          stressFailed={stressFailed}
+          stressFailed={stressError != null}
           onRetryStress={retryStress}
           mode={mode}
           onStartDrawing={startDrawing}
@@ -885,8 +873,8 @@ export default function BikeMap() {
 
           {/* Traffic-stress overlay — sits above the tiles, below the heat (see the
               "stress" pane). Hidden while drawing, like the heatmap. */}
-          {mode === "view" && stressDataset && activeStress && (
-            <StressLayer key={stressDataset} data={activeStress} renderer={stressRenderer} />
+          {mode === "view" && stressOn && stressData && (
+            <StressLayer data={stressData} renderer={stressRenderer} style={stressStyle} />
           )}
 
           {/* Hidden during the draw flow so the existing demand can't steer where people route. */}
@@ -1012,7 +1000,10 @@ export default function BikeMap() {
 
         {/* The legend only describes the heat layer, so it hides whenever the heat does. */}
         {mode === "view" && (
-          <MapLegend compact={isMobile} showStress={stressDataset != null} />
+          <MapLegend
+            compact={isMobile}
+            showStress={stressOn && stressData != null && stressBreakdown}
+          />
         )}
 
         {mode === "view" && selectedRoute && (
@@ -1166,7 +1157,7 @@ function LegendCard({
   );
 }
 
-/** Off-street + LTS 1–4 swatches, shown while the traffic-stress overlay is on. */
+/** Off-street + LTS 1–4 swatches, shown while the traffic-stress breakdown is on. */
 function StressLegendCard({ compact }: { compact: boolean }) {
   return (
     <LegendCard compact={compact} title="Traffic stress">

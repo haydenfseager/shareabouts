@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scratch git worktrees (spawned agent sessions) carry their own build output.
+    ".claude/worktrees/**",
   ]),
 ]);
 

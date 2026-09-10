@@ -1,5 +1,7 @@
 "use client";
 
+import type { HotNeighborhood, HotRoute } from "@/lib/types";
+
 type RecentReason = { id: string; reason: string; createdAt: string };
 
 export function Sidebar({
@@ -7,8 +9,12 @@ export function Sidebar({
   loadError,
   routeCount,
   recentReasons,
+  hotRoutes,
+  hotNeighborhoods,
   selectedRouteId,
   onSelectRoute,
+  selectedNeighborhood,
+  onSelectNeighborhood,
   mode,
   onStartDrawing,
   onCancelDrawing,
@@ -17,12 +23,18 @@ export function Sidebar({
   loadError: string | null;
   routeCount: number;
   recentReasons: RecentReason[];
+  hotRoutes: HotRoute[];
+  hotNeighborhoods: HotNeighborhood[];
   selectedRouteId: string | null;
   onSelectRoute: (id: string) => void;
+  selectedNeighborhood: string | null;
+  onSelectNeighborhood: (name: string) => void;
   mode: "view" | "draw";
   onStartDrawing: () => void;
   onCancelDrawing: () => void;
 }) {
+  // Nothing meaningful to rank under three routes — hide both sections entirely.
+  const showRankings = routeCount >= 3;
   return (
     <aside className="order-2 flex w-full min-h-0 flex-1 flex-col gap-5 overflow-y-auto border-t border-slate-200 bg-white p-5 md:order-1 md:w-80 md:flex-none md:border-t-0 md:border-r">
       <div>
@@ -57,6 +69,88 @@ export function Sidebar({
         >
           Stop drawing
         </button>
+      )}
+
+      {showRankings && hotRoutes.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Most requested corridors
+          </h2>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Where the most submitted routes pile onto the same streets. Tap to highlight one.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {hotRoutes.map((r) => {
+              const active = r.id === selectedRouteId;
+              return (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => onSelectRoute(r.id)}
+                    className={`block w-full rounded-md p-3 text-left text-sm transition-colors ${
+                      active
+                        ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
+                        : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
+                    }`}
+                  >
+                    <p className={`leading-snug ${r.reason ? "" : "italic text-slate-400"}`}>
+                      {r.reason ? `“${r.reason}”` : "no note"}
+                    </p>
+                    <p className={`mt-1 text-[11px] ${active ? "text-pink-600" : "text-slate-400"}`}>
+                      {r.lengthLabel} · ~{r.converge} routes converge here (approx.)
+                    </p>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {showRankings && hotNeighborhoods.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Hottest neighborhoods
+          </h2>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Share of all mapped demand that runs through each. Tap to outline it.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {hotNeighborhoods.map((n) => {
+              const active = n.name === selectedNeighborhood;
+              const pct = Math.round(n.share * 100);
+              return (
+                <li key={n.name}>
+                  <button
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => onSelectNeighborhood(n.name)}
+                    className={`block w-full rounded-md p-3 text-left text-sm transition-colors ${
+                      active
+                        ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
+                        : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-medium">{n.name}</span>
+                      <span
+                        className={`shrink-0 tabular-nums text-xs ${
+                          active ? "text-pink-600" : "text-slate-500"
+                        }`}
+                      >
+                        {pct}%
+                      </span>
+                    </div>
+                    <p className={`mt-1 text-[11px] ${active ? "text-pink-600" : "text-slate-400"}`}>
+                      {n.count} route points mapped here
+                    </p>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       <div>

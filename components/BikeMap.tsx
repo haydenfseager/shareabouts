@@ -32,8 +32,9 @@ import {
   routeInsideBoston,
   segmentInsideBoston,
 } from "@/lib/boston-boundary";
+import { BOSTON_NEIGHBORHOODS, neighborhoodAt } from "@/lib/boston-neighborhoods";
 import { MAX_REASON_LENGTH } from "@/lib/validate";
-import type { BikeRoute } from "@/lib/types";
+import type { BikeRoute, HotNeighborhood, HotRoute } from "@/lib/types";
 import { Sidebar } from "./Sidebar";
 
 /** A ring spanning the whole map; with BOSTON_BOUNDARY as a hole it shades everything outside the city. */
@@ -89,6 +90,18 @@ function distanceToRoute(point: LatLng, geometry: LatLng[]): number {
   }
   return min;
 }
+
+// "Hottest" ranking — all client-side, over the loaded route set:
+//  - Routes: hash every 25 m sample into ~40 m grid cells; a route's score is the
+//    MEAN count of *other* routes sharing its cell (or an adjacent one) along its
+//    length, so a long route isn't rewarded for length alone. A greedy pass then
+//    collapses the same corridor drawn many times into a single row.
+//  - Neighborhoods: tally which neighborhood every sample falls in.
+const HOT_CELL = 0.0005; // ~40 m of lat/lng in Boston
+const HOT_DEDUPE_RADIUS_M = 50;
+const HOT_DEDUPE_SHARE = 0.6;
+const HOT_LIST_MAX = 5;
+const HOT_MIN_ROUTES = 3;
 
 type Mode = "view" | "draw";
 
@@ -316,6 +329,9 @@ export default function BikeMap() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [outsideHint, setOutsideHint] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  // Ranked-neighborhood highlight. Mutually exclusive with a route highlight and
+  // with the "routes near here" panel.
+  const [selectedNeighborhood, setSelectedNeighborhood] = useState<string | null>(null);
   // The point of the last view-mode background tap; non-null while the
   // "routes near here" panel is open.
   const [nearbyQuery, setNearbyQuery] = useState<LatLng | null>(null);
@@ -353,12 +369,117 @@ export default function BikeMap() {
     [routes],
   );
 
+  // Top corridors by overlap density. For every route, sample it at 25 m, drop
+  // each sample into a ~40 m spatial-hash cell, then score the route by the mean
+  // number of *other* routes found in each sample's 3x3 cell block. A greedy
+  // de-dupe folds "same corridor drawn N times" into one row.
+  const hotRoutes = useMemo<HotRoute[]>(() => {
+    if (routes.length < HOT_MIN_ROUTES) return [];
+
+    const sampled = routes.map((route) => ({
+      route,
+      samples: sampleLine(route.geometry, 25),
+    }));
+
+    const grid = new Map<string, Set<string>>();
+    for (const { route, samples } of sampled) {
+      for (const [lat, lng] of samples) {
+        const key = `${Math.round(lat / HOT_CELL)}:${Math.round(lng / HOT_CELL)}`;
+        let cell = grid.get(key);
+        if (!cell) grid.set(key, (cell = new Set()));
+        cell.add(route.id);
+      }
+    }
+
+    const scored = sampled.map(({ route, samples }) => {
+      let sum = 0;
+      let peak = 0;
+      for (const [lat, lng] of samples) {
+        const ci = Math.round(lat / HOT_CELL);
+        const cj = Math.round(lng / HOT_CELL);
+        const others = new Set<string>();
+        for (let di = -1; di <= 1; di++) {
+          for (let dj = -1; dj <= 1; dj++) {
+            const cell = grid.get(`${ci + di}:${cj + dj}`);
+            if (!cell) continue;
+            for (const id of cell) if (id !== route.id) others.add(id);
+          }
+        }
+        sum += others.size;
+        if (others.size > peak) peak = others.size;
+      }
+      return { route, samples, score: samples.length ? sum / samples.length : 0, peak };
+    });
+    scored.sort((a, b) => b.score - a.score);
+
+    type Kept = { route: BikeRoute; peak: number; merged: number };
+    const kept: Kept[] = [];
+    for (const cand of scored) {
+      let best: Kept | null = null;
+      let bestNear = 0;
+      for (const k of kept) {
+        let near = 0;
+        for (const s of cand.samples) {
+          if (distanceToRoute(s, k.route.geometry) <= HOT_DEDUPE_RADIUS_M) near += 1;
+        }
+        if (near > bestNear) {
+          bestNear = near;
+          best = k;
+        }
+      }
+      const share = cand.samples.length ? bestNear / cand.samples.length : 0;
+      if (best && share >= HOT_DEDUPE_SHARE) {
+        best.merged += 1;
+        continue;
+      }
+      if (kept.length < HOT_LIST_MAX) {
+        kept.push({ route: cand.route, peak: cand.peak, merged: 0 });
+      }
+    }
+
+    return kept.map(({ route, peak, merged }) => ({
+      id: route.id,
+      reason: route.reason,
+      lengthLabel: meters(lineLength(route.geometry)),
+      converge: Math.max(peak, merged) + 1,
+    }));
+  }, [routes]);
+
+  // Top neighborhoods by how many sampled route points land inside each polygon
+  // (the same points that feed the heatmap).
+  const hotNeighborhoods = useMemo<HotNeighborhood[]>(() => {
+    if (routes.length < HOT_MIN_ROUTES) return [];
+    const counts = new Map<string, number>();
+    for (const sample of heatPoints) {
+      const name = neighborhoodAt(sample);
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    let total = 0;
+    for (const c of counts.values()) total += c;
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count, share: total ? count / total : 0 }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, HOT_LIST_MAX);
+  }, [routes, heatPoints]);
+
   // Resolves to null once its route is gone (e.g. deleted, then refetched), so
   // every consumer below quietly stops showing it — no cleanup effect needed.
   const selectedRoute = useMemo(
     () => routes.find((r) => r.id === selectedRouteId) ?? null,
     [routes, selectedRouteId],
   );
+
+  // The tapped ranked neighborhood's rings, or null. Same "resolves to null when
+  // gone" property as `selectedRoute`.
+  const selectedNeighborhoodParts = useMemo(
+    () => BOSTON_NEIGHBORHOODS.find((n) => n.name === selectedNeighborhood)?.parts ?? null,
+    [selectedNeighborhood],
+  );
+
+  const selectedNeighborhoodPct = useMemo(() => {
+    const hit = hotNeighborhoods.find((n) => n.name === selectedNeighborhood);
+    return hit ? Math.round(hit.share * 100) : null;
+  }, [hotNeighborhoods, selectedNeighborhood]);
 
   // Frame the selected route. On mobile the map stays pinned at the top of the
   // screen, so no scrolling is needed to see it.
@@ -367,8 +488,23 @@ export default function BikeMap() {
     map.fitBounds(selectedRoute.geometry, { padding: [48, 48], maxZoom: 15 });
   }, [map, selectedRoute]);
 
+  // Frame the selected neighborhood outline (same rationale as the route above).
+  useEffect(() => {
+    if (!map || !selectedNeighborhoodParts) return;
+    map.fitBounds(selectedNeighborhoodParts.flat(), { padding: [48, 48], maxZoom: 15 });
+  }, [map, selectedNeighborhoodParts]);
+
   const selectRoute = useCallback((id: string) => {
+    setSelectedNeighborhood(null);
     setSelectedRouteId((current) => (current === id ? null : id));
+  }, []);
+
+  // Route and neighborhood highlights are mutually exclusive; picking one clears
+  // the other and the "routes near here" panel.
+  const selectNeighborhood = useCallback((name: string) => {
+    setSelectedRouteId(null);
+    setNearbyQuery(null);
+    setSelectedNeighborhood((current) => (current === name ? null : name));
   }, []);
 
   // Routes passing within NEARBY_RADIUS_M of the tapped point, nearest first.
@@ -384,12 +520,14 @@ export default function BikeMap() {
   // panel: first tap opens it at that point, a second tap anywhere dismisses it.
   const handleBackgroundClick = useCallback((p: LatLng) => {
     setSelectedRouteId(null);
+    setSelectedNeighborhood(null);
     setNearbyQuery((current) => (current ? null : p));
   }, []);
 
   const closeNearby = useCallback(() => {
     setNearbyQuery(null);
     setSelectedRouteId(null);
+    setSelectedNeighborhood(null);
   }, []);
 
   // Nothing nearby: show a brief nudge instead of an empty panel, then clear it.
@@ -448,6 +586,7 @@ export default function BikeMap() {
   const startDrawing = useCallback(() => {
     resetDraft();
     setSelectedRouteId(null);
+    setSelectedNeighborhood(null);
     setNearbyQuery(null);
     setMode("draw");
   }, [resetDraft]);
@@ -523,8 +662,12 @@ export default function BikeMap() {
             .filter((r) => r.reason)
             .slice(0, 8)
             .map((r) => ({ id: r.id, reason: r.reason as string, createdAt: r.createdAt }))}
+          hotRoutes={hotRoutes}
+          hotNeighborhoods={hotNeighborhoods}
           selectedRouteId={selectedRouteId}
           onSelectRoute={selectRoute}
+          selectedNeighborhood={selectedNeighborhood}
+          onSelectNeighborhood={selectNeighborhood}
           mode={mode}
           onStartDrawing={startDrawing}
           onCancelDrawing={cancelDrawing}
@@ -648,6 +791,14 @@ export default function BikeMap() {
               ))}
             </>
           )}
+          {/* Outline of the neighborhood tapped in the sidebar ranking. */}
+          {mode === "view" && selectedNeighborhoodParts && (
+            <Polygon
+              positions={selectedNeighborhoodParts}
+              pathOptions={{ color: "#db2777", weight: 2, fill: false, dashArray: "4 4" }}
+              interactive={false}
+            />
+          )}
           {/* Marks the point the "routes near here" query was run from. */}
           {mode === "view" && nearbyQuery && nearbyRoutes.length > 0 && (
             <CircleMarker
@@ -690,6 +841,25 @@ export default function BikeMap() {
               type="button"
               onClick={() => setSelectedRouteId(null)}
               aria-label="Clear highlight"
+              className="-mr-1 -mt-1 shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {mode === "view" && selectedNeighborhood && (
+          <div className="absolute left-3 top-3 z-[1000] flex items-start gap-2 rounded-lg bg-white p-3 shadow-xl ring-1 ring-pink-200">
+            <p className="text-xs leading-snug text-slate-700">
+              <span className="font-semibold">{selectedNeighborhood}</span>
+              {selectedNeighborhoodPct != null && (
+                <span className="text-slate-400"> · {selectedNeighborhoodPct}% of demand</span>
+              )}
+            </p>
+            <button
+              type="button"
+              onClick={() => setSelectedNeighborhood(null)}
+              aria-label="Clear neighborhood outline"
               className="-mr-1 -mt-1 shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
             >
               ✕

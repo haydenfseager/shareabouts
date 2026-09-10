@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "node scripts/seed.mjs",
-    "boundary": "node scripts/fetch-boundary.mjs"
+    "boundary": "node scripts/fetch-boundary.mjs",
+    "neighborhoods": "node scripts/fetch-neighborhoods.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

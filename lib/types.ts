@@ -9,6 +9,9 @@ export type BikeRoute = {
   id: string;
   geometry: LatLng[];
   reason: string | null;
+  /** Optional self-reported US ZIP code. `null` when not collected. Kept for
+   *  data collection only — never shown in the public map UI. */
+  zip: string | null;
   createdAt: string;
 };
 

@@ -49,6 +49,7 @@ Two tables, created on first run (`lib/db.ts`):
 | `id`         | TEXT | UUID                              |
 | `geometry`   | TEXT | JSON `[[lat, lng], …]`, ≥ 2 points |
 | `reason`     | TEXT | nullable, ≤ 280 chars              |
+| `zip`        | TEXT | nullable, self-reported US ZIP; `NULL` = not collected |
 | `created_at` | TEXT | ISO 8601                          |
 
 `rate_hits` — one row per accepted `POST`, pruned after the window
@@ -63,11 +64,12 @@ Two tables, created on first run (`lib/db.ts`):
 | Method   | Route             | Body / auth                            | Response                              |
 | -------- | ----------------- | ------------------------------------- | ------------------------------------- |
 | `GET`    | `/api/routes`     | –                                     | `{ routes, count }`                   |
-| `POST`   | `/api/routes`     | `{ geometry: [[lat,lng],…], reason? }` | `201 { route }` · `422/400` · `429`  |
+| `POST`   | `/api/routes`     | `{ geometry: [[lat,lng],…], reason?, zip? }` | `201 { route }` · `422/400` · `429`  |
 | `DELETE` | `/api/routes/:id` | `Authorization: Bearer <ADMIN_TOKEN>` | `200 { deleted }` · `401/404/503`    |
 
 `POST` validation (`lib/validate.ts`): 2–200 points, total length 30 m – 25 km,
-reason trimmed to 280 chars, and **the entire route inside the City of Boston** —
+reason trimmed to 280 chars, optional `zip` matching `\d{5}(-\d{4})?` (blank →
+`NULL`), and **the entire route inside the City of Boston** —
 every vertex and every point along each segment. Each IP may submit **5 routes per
 minute** (`lib/rate-limit.ts`); over that returns `429` with `Retry-After`.
 

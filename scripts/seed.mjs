@@ -26,6 +26,7 @@ await db.execute(`
     id         TEXT PRIMARY KEY,
     geometry   TEXT NOT NULL,
     reason     TEXT,
+    zip        TEXT,
     created_at TEXT NOT NULL
   )
 `);
@@ -60,6 +61,7 @@ const seeds = [
     geometry: jitter(MASS_AVE, 0.0005, 7),
     reason:
       "Mass Ave is the backbone of cycling in the city and the painted lane just vanishes at the worst intersections.",
+    zip: "02118",
     createdAt: daysAgo(21),
   },
   {
@@ -92,6 +94,7 @@ const seeds = [
       [42.3515, -71.118],
     ],
     reason: "Comm Ave through BU is terrifying with the buses and the tracks.",
+    zip: "02134",
     createdAt: daysAgo(16),
   },
   {
@@ -115,6 +118,7 @@ const seeds = [
       [42.351, -71.0685],
     ],
     reason: "Columbus Ave is the direct line from Egleston to Back Bay and it needs a real lane.",
+    zip: "02130",
     createdAt: daysAgo(14),
   },
   {
@@ -184,6 +188,7 @@ const seeds = [
       [42.3, -71.06],
     ],
     reason: "Dot Ave carries thousands of people and gives cyclists nothing.",
+    zip: "02125",
     createdAt: daysAgo(10),
   },
 
@@ -217,8 +222,8 @@ await db.batch(
   [
     { sql: "DELETE FROM routes", args: [] },
     ...seeds.map((s) => ({
-      sql: "INSERT INTO routes (id, geometry, reason, created_at) VALUES (?, ?, ?, ?)",
-      args: [crypto.randomUUID(), JSON.stringify(s.geometry), s.reason, s.createdAt],
+      sql: "INSERT INTO routes (id, geometry, reason, zip, created_at) VALUES (?, ?, ?, ?, ?)",
+      args: [crypto.randomUUID(), JSON.stringify(s.geometry), s.reason, s.zip ?? null, s.createdAt],
     })),
   ],
   "write",

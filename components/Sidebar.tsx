@@ -89,7 +89,7 @@ export function Sidebar({
           Traffic-stress overlay
         </h2>
         <p className="mt-1 text-[11px] text-slate-400">
-          Colour every Boston street by its Bicycle Level of Traffic Stress — LTS&nbsp;1 is calm
+          Color every Boston street by its Bicycle Level of Traffic Stress — LTS&nbsp;1 is calm
           enough for most riders, LTS&nbsp;4 is heavy, fast traffic. See how the corridors people
           ask for line up with the streets that already feel safe.
         </p>

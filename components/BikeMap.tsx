@@ -226,7 +226,7 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Style for a stress segment: every street coloured by its Level of Traffic
+ * Style for a stress segment: every street colored by its Level of Traffic
  * Stress (Boston's official ramp via `ltsColor`). Thin lines and a high
  * `smoothFactor` keep ~19.6k canvas polylines cheap to project and redraw.
  */
@@ -1167,7 +1167,7 @@ function LegendCard({
 
 /**
  * LTS 1–4 swatches (Boston's official ramp) plus a final "not scored" row for the
- * grey segments. Shown whenever the traffic-stress overlay is drawn. All colours
+ * grey segments. Shown whenever the traffic-stress overlay is drawn. All colors
  * come from LTS_COLOR — no hard-coded hex here.
  */
 function StressLegendCard({ compact }: { compact: boolean }) {

@@ -1194,7 +1194,7 @@ function DrawCard({
           <div className="mt-1 text-right text-[10px] text-slate-400">
             {reason.length}/{MAX_REASON_LENGTH}
           </div>
-          <label className="mt-2 block text-xs font-medium text-slate-600">
+          <label className="mt-3 block text-xs font-medium text-slate-600">
             ZIP code (optional)
             <input
               type="text"
@@ -1204,7 +1204,7 @@ function DrawCard({
               autoComplete="postal-code"
               maxLength={10}
               placeholder="02118"
-              className="mt-1 w-28 rounded-md border border-slate-300 p-2 text-xs text-slate-800 outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600"
+              className="mt-1.5 block w-28 rounded-md border border-slate-300 p-2 text-xs text-slate-800 outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600"
             />
           </label>
           {zipLooksInvalid && (

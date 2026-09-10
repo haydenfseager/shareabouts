@@ -101,6 +101,25 @@ city, and (c) disable **Finish** if the drafted route leaves Boston at all.
   are what the heat layer sees, so overlapping routes stack up and long routes don't
   dominate just by having more clicks.
 
+### Traffic-stress overlay
+
+An optional overlay (sidebar toggle) colours every Boston street by its **Bicycle
+Level of Traffic Stress** — LTS 1 (calm enough for most riders) through LTS 4
+(heavy, fast traffic); a small number of segments are unscored. It lets you see
+how the corridors people ask for line up with the streets that already feel safe.
+
+The data is the City of Boston's ["Bicycle Level of Traffic Stress 2023"][blts]
+ArcGIS layer (Boston Transportation Department & Toole Design), replacing the
+earlier third-party dataset. `npm run stress` (`scripts/fetch-stress-network.mjs`)
+paginates that feature service, keeps only `{ lts, name }` per segment, simplifies
+the geometry, and writes `public/stress/boston-blts-2023.geojson` (~19.7k
+LineStrings, ~3 MB). That file is committed and lazy-loaded in the browser only
+the first time the overlay is switched on; the layer itself is left unmounted
+below zoom 12, where individual streets aren't legible. Colours, labels and map
+attribution all come from `lib/stress-network.ts` and match boston.gov/blts.
+
+[blts]: https://www.boston.gov/blts
+
 ## Project layout
 
 ```
@@ -111,11 +130,12 @@ app/
   api/routes/[id]/route.ts DELETE (admin)
 components/
   MapClient.tsx            ssr:false dynamic wrapper
-  BikeMap.tsx              map, heat layer, draw tool
-  Sidebar.tsx              intro, count, recent reasons
+  BikeMap.tsx              map, heat layer, stress overlay, draw tool
+  Sidebar.tsx              intro, count, rankings, overlay toggle, recent reasons
 lib/
   geo.ts                   Boston config, haversine, sampleLine
   boston-boundary.ts       city-limits polygon + point-in-polygon helpers
+  stress-network.ts        BLTS overlay metadata: colour ramp, labels, attribution
   db.ts                    libSQL client + queries + schema
   rate-limit.ts            per-IP fixed window
   admin.ts                 ADMIN_TOKEN check
@@ -124,6 +144,7 @@ lib/
 scripts/
   seed.mjs                 example data (local file or remote Turso)
   fetch-boundary.mjs       regenerates lib/boston-boundary.ts from OSM
+  fetch-stress-network.mjs vendors the Boston BLTS 2023 layer into public/stress/
 ```
 
 ## Deploying (Vercel + Turso)

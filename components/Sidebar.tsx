@@ -18,9 +18,8 @@ export function Sidebar({
   onSelectNeighborhood,
   stressOn,
   onToggleStress,
-  stressBreakdown,
-  onToggleStressBreakdown,
   stressLoading,
+  stressZoomedOut,
   stressFailed,
   onRetryStress,
   mode,
@@ -39,9 +38,8 @@ export function Sidebar({
   onSelectNeighborhood: (name: string) => void;
   stressOn: boolean;
   onToggleStress: (on: boolean) => void;
-  stressBreakdown: boolean;
-  onToggleStressBreakdown: (on: boolean) => void;
   stressLoading: boolean;
+  stressZoomedOut: boolean;
   stressFailed: boolean;
   onRetryStress: () => void;
   mode: "view" | "draw";
@@ -173,8 +171,9 @@ export function Sidebar({
           Traffic-stress overlay
         </h2>
         <p className="mt-1 text-[11px] text-slate-400">
-          Lay Boston&rsquo;s existing cycling network over the demand map to see where the streets
-          people ask for already work — and where they don&rsquo;t.
+          Colour every Boston street by its Bicycle Level of Traffic Stress — LTS&nbsp;1 is calm
+          enough for most riders, LTS&nbsp;4 is heavy, fast traffic. See how the corridors people
+          ask for line up with the streets that already feel safe.
         </p>
         <label
           className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md p-2.5 text-sm transition-colors ${
@@ -190,34 +189,15 @@ export function Sidebar({
             onChange={(e) => onToggleStress(e.target.checked)}
           />
           <span className="min-w-0">
-            <span className="block font-medium leading-snug">Show the existing network</span>
+            <span className="block font-medium leading-snug">Show the {STRESS_DATASET.label}</span>
             <span className="mt-0.5 block text-[11px] text-slate-400">{STRESS_DATASET.blurb}</span>
           </span>
         </label>
-        {stressOn && (
-          <label
-            className={`mt-1.5 flex cursor-pointer items-start gap-2 rounded-md p-2.5 text-sm transition-colors ${
-              stressBreakdown
-                ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
-                : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
-            }`}
-          >
-            <input
-              type="checkbox"
-              className="mt-0.5 accent-pink-600"
-              checked={stressBreakdown}
-              onChange={(e) => onToggleStressBreakdown(e.target.checked)}
-            />
-            <span className="min-w-0">
-              <span className="block font-medium leading-snug">Colour by stress level</span>
-              <span className="mt-0.5 block text-[11px] text-slate-400">
-                Split the network into Level of Traffic Stress bands (off-street, LTS 1–4)
-              </span>
-            </span>
-          </label>
-        )}
         {stressLoading && (
           <p className="mt-2 text-[11px] text-slate-400">Loading stress network…</p>
+        )}
+        {stressZoomedOut && !stressLoading && (
+          <p className="mt-2 text-[11px] text-slate-400">Zoom in to see the stress network.</p>
         )}
         {stressFailed && (
           <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 ring-1 ring-amber-200">

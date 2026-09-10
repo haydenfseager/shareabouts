@@ -60,8 +60,8 @@ import { Sidebar } from "./Sidebar";
 type StressCollection = FeatureCollection<LineString, StressFeatureProps>;
 
 // react-leaflet's GeoJSON props omit `renderer`, but Leaflet forwards the option
-// straight onto the layer and every child polyline it builds — that's how ~2.5k
-// segments share one <canvas> instead of spawning 2.5k SVG nodes.
+// straight onto the layer and every child polyline it builds — that's how ~19.6k
+// segments share one <canvas> instead of spawning 19.6k SVG nodes.
 const CanvasGeoJSON = GeoJSON as ComponentType<GeoJSONProps & { renderer?: L.Renderer }>;
 
 /** A ring spanning the whole map; with BOSTON_BOUNDARY as a hole it shades everything outside the city. */
@@ -107,6 +107,11 @@ function heatSizeForZoom(zoom: number): { radius: number; blur: number } {
 // at this threshold, and cheap for the whole (client-side) route set.
 const NEARBY_RADIUS_M = 200;
 const NEARBY_SAMPLE_M = 20;
+
+// The stress overlay is ~19.6k canvas polylines; below this zoom it's an
+// unreadable smear of the whole metro anyway, so the <GeoJSON> is left unmounted
+// (no projection work, no draw) until the map is zoomed in at least this far.
+const STRESS_MIN_ZOOM = 12;
 
 /** Shortest distance (m) from `point` to a sampled `geometry` polyline. */
 function distanceToRoute(point: LatLng, geometry: LatLng[]): number {
@@ -221,60 +226,58 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Style for a stress segment. With the breakdown off the whole network is drawn
- * in one colour (LTS 1 green); with it on each segment takes its LTS colour.
+ * Style for a stress segment: every street coloured by its Level of Traffic
+ * Stress (Boston's official ramp via `ltsColor`). Thin lines and a high
+ * `smoothFactor` keep ~19.6k canvas polylines cheap to project and redraw.
  */
-function makeStressLineStyle(breakdown: boolean) {
-  return (feature?: Feature<Geometry>): L.PathOptions => {
-    const lts = (feature?.properties as StressFeatureProps | undefined)?.lts ?? null;
-    return {
-      color: breakdown ? ltsColor(lts) : LTS_COLOR[1],
-      weight: 3,
-      opacity: 0.75,
-    };
+function stressLineStyle(feature?: Feature<Geometry>): L.PathOptions {
+  const lts = (feature?.properties as StressFeatureProps | undefined)?.lts ?? null;
+  // Typed as PolylineOptions for `smoothFactor`; Leaflet forwards it to each
+  // polyline it builds. Widened back to PathOptions on return for the `style` prop.
+  const options: L.PolylineOptions = {
+    color: ltsColor(lts),
+    weight: 1.5,
+    opacity: 0.8,
+    smoothFactor: 2,
   };
+  return options;
 }
 
-/** Popup with the street name, its LTS label and a link to the OSM way. */
+/** Popup with the street name and its Level of Traffic Stress rating. */
 function bindStressPopup(feature: Feature<Geometry>, layer: L.Layer): void {
   const props = feature.properties as StressFeatureProps | null;
   const lts = props?.lts ?? null;
   const ltsText = lts == null ? "Stress rating unknown" : (LTS_LABEL[lts] ?? `LTS ${lts}`);
-  const name = props?.name ? escapeHtml(props.name) : "Unnamed segment";
-  const osmLink =
-    props?.osmId != null
-      ? `<p><a href="https://www.openstreetmap.org/way/${props.osmId}" target="_blank" rel="noreferrer">View on OpenStreetMap</a></p>`
-      : "";
+  const streetName = props?.name?.trim();
+  const name = streetName ? escapeHtml(streetName) : "Unnamed segment";
   layer.bindPopup(
-    `<p class="font-semibold text-slate-800">${name}</p><p class="text-slate-600">${ltsText}</p>${osmLink}`,
+    `<p class="font-semibold text-slate-800">${name}</p><p class="text-slate-600">${ltsText}</p>`,
   );
 }
 
 /**
  * The traffic-stress network, drawn to a shared canvas in a dedicated low-z pane
  * so the lines sit under the heatmap and the drawn/highlight layers but over the
- * base tiles. Mounted only while the overlay is on. Flipping the breakdown passes
- * a new `style` function, which react-leaflet re-applies in place (no remount).
+ * base tiles. Mounted only while the overlay is on and the map is zoomed in past
+ * STRESS_MIN_ZOOM.
  */
-function StressLayer({
-  data,
-  renderer,
-  style,
-}: {
-  data: StressCollection;
-  renderer: L.Renderer;
-  style: (feature?: Feature<Geometry>) => L.PathOptions;
-}) {
+function StressLayer({ data, renderer }: { data: StressCollection; renderer: L.Renderer }) {
   return (
     <CanvasGeoJSON
       data={data}
       pane="stress"
       renderer={renderer}
-      style={style}
+      style={stressLineStyle}
       onEachFeature={bindStressPopup}
       attribution={STRESS_ATTRIBUTION}
     />
   );
+}
+
+/** Lifts the map's zoom into React state so the stress overlay can gate on it. */
+function ZoomWatcher({ onZoom }: { onZoom: (zoom: number) => void }) {
+  const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) });
+  return null;
 }
 
 /** True below Tailwind's `md` breakpoint (< 768px). */
@@ -432,19 +435,25 @@ export default function BikeMap() {
   // The point of the last view-mode background tap; non-null while the
   // "routes near here" panel is open.
   const [nearbyQuery, setNearbyQuery] = useState<LatLng | null>(null);
-  // Traffic-stress overlay: whether the network is showing, whether it's split
-  // out by LTS colour, plus the lazily fetched FeatureCollection / fetch error.
+  // Traffic-stress overlay: whether the network is showing, plus the lazily
+  // fetched FeatureCollection / fetch error.
   const [stressOn, setStressOn] = useState(false);
-  const [stressBreakdown, setStressBreakdown] = useState(false);
   const [stressData, setStressData] = useState<StressCollection | null>(null);
   const [stressError, setStressError] = useState<string | null>(null);
+  // Current map zoom, tracked so the overlay can hide when zoomed out too far.
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const isMobile = useIsMobile();
 
   const stressLoading = stressOn && stressData == null && stressError == null;
-  const stressStyle = useMemo(() => makeStressLineStyle(stressBreakdown), [stressBreakdown]);
+  // On while the overlay is enabled but the map is zoomed out past where the
+  // ~19.6k segments are worth drawing — the sidebar shows a "zoom in" nudge.
+  const stressZoomedOut = stressOn && zoom < STRESS_MIN_ZOOM;
+  // Overlay + its legend show only once zoomed in enough (data check is per-site,
+  // to narrow `stressData` for the layer prop).
+  const stressVisible = stressOn && zoom >= STRESS_MIN_ZOOM;
 
-  // One shared canvas for the whole stress network (2.5k polylines as SVG is slow).
-  // `tolerance` widens the click target so the 3px lines are easy to tap.
+  // One shared canvas for the whole stress network (~19.6k polylines as SVG is
+  // hopeless). `tolerance` widens the click target so the thin lines are tappable.
   const stressRenderer = useMemo(
     () => L.canvas({ padding: 0.5, tolerance: 4, pane: "stress" }),
     [],
@@ -833,9 +842,8 @@ export default function BikeMap() {
           onSelectNeighborhood={selectNeighborhood}
           stressOn={stressOn}
           onToggleStress={toggleStress}
-          stressBreakdown={stressBreakdown}
-          onToggleStressBreakdown={setStressBreakdown}
           stressLoading={stressLoading}
+          stressZoomedOut={stressZoomedOut}
           stressFailed={stressError != null}
           onRetryStress={retryStress}
           mode={mode}
@@ -862,6 +870,7 @@ export default function BikeMap() {
         >
           <AttributionControl position="bottomright" prefix={false} />
           <InvalidateOnResize dep={fullscreenDraw} />
+          <ZoomWatcher onZoom={setZoom} />
           <TileLayer
             attribution='&copy; <a href="https://www.esri.com/">Esri</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
@@ -872,9 +881,10 @@ export default function BikeMap() {
           />
 
           {/* Traffic-stress overlay — sits above the tiles, below the heat (see the
-              "stress" pane). Hidden while drawing, like the heatmap. */}
-          {mode === "view" && stressOn && stressData && (
-            <StressLayer data={stressData} renderer={stressRenderer} style={stressStyle} />
+              "stress" pane). Hidden while drawing, like the heatmap, and left
+              unmounted below STRESS_MIN_ZOOM. */}
+          {mode === "view" && stressVisible && stressData && (
+            <StressLayer data={stressData} renderer={stressRenderer} />
           )}
 
           {/* Hidden during the draw flow so the existing demand can't steer where people route. */}
@@ -998,12 +1008,10 @@ export default function BikeMap() {
           />
         </MapContainer>
 
-        {/* The legend only describes the heat layer, so it hides whenever the heat does. */}
+        {/* Legend for the demand heat (always) and the traffic-stress ramp (only
+            while that overlay is drawn); hidden entirely outside view mode. */}
         {mode === "view" && (
-          <MapLegend
-            compact={isMobile}
-            showStress={stressOn && stressData != null && stressBreakdown}
-          />
+          <MapLegend compact={isMobile} showStress={stressVisible && stressData != null} />
         )}
 
         {mode === "view" && selectedRoute && (
@@ -1157,18 +1165,22 @@ function LegendCard({
   );
 }
 
-/** Off-street + LTS 1–4 swatches, shown while the traffic-stress breakdown is on. */
+/**
+ * LTS 1–4 swatches (Boston's official ramp) plus a final "not scored" row for the
+ * grey segments. Shown whenever the traffic-stress overlay is drawn. All colours
+ * come from LTS_COLOR — no hard-coded hex here.
+ */
 function StressLegendCard({ compact }: { compact: boolean }) {
   return (
     <LegendCard compact={compact} title="Traffic stress">
       <ul className={`space-y-1 text-slate-600 ${compact ? "text-[10px]" : "text-[11px]"}`}>
-        {[0, 1, 2, 3, 4].map((lts) => (
+        {[1, 2, 3, 4, 0].map((lts) => (
           <li key={lts} className="flex items-center gap-1.5">
             <span
               className="inline-block h-1 w-4 shrink-0 rounded-full"
               style={{ backgroundColor: LTS_COLOR[lts] }}
             />
-            <span>{compact ? (lts === 0 ? "Off-street" : `LTS ${lts}`) : LTS_LABEL[lts]}</span>
+            <span>{compact ? (lts === 0 ? "n/a" : `LTS ${lts}`) : LTS_LABEL[lts]}</span>
           </li>
         ))}
       </ul>

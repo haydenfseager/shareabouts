@@ -1,16 +1,9 @@
 "use client";
 
 import type { HotNeighborhood, HotRoute } from "@/lib/types";
-import { STRESS_DATASETS, type StressDatasetId } from "@/lib/stress-network";
+import { STRESS_DATASET } from "@/lib/stress-network";
 
 type RecentReason = { id: string; reason: string; createdAt: string };
-
-type StressOption = { id: StressDatasetId | null; label: string; blurb: string | null };
-
-const STRESS_OPTIONS: StressOption[] = [
-  { id: null, label: "Off", blurb: null },
-  ...STRESS_DATASETS.map((d) => ({ id: d.id, label: d.label, blurb: d.blurb })),
-];
 
 export function Sidebar({
   loading,
@@ -23,8 +16,8 @@ export function Sidebar({
   onSelectRoute,
   selectedNeighborhood,
   onSelectNeighborhood,
-  stressDataset,
-  onSelectStressDataset,
+  stressOn,
+  onToggleStress,
   stressLoading,
   stressFailed,
   onRetryStress,
@@ -42,8 +35,8 @@ export function Sidebar({
   onSelectRoute: (id: string) => void;
   selectedNeighborhood: string | null;
   onSelectNeighborhood: (name: string) => void;
-  stressDataset: StressDatasetId | null;
-  onSelectStressDataset: (id: StressDatasetId | null) => void;
+  stressOn: boolean;
+  onToggleStress: (on: boolean) => void;
   stressLoading: boolean;
   stressFailed: boolean;
   onRetryStress: () => void;
@@ -180,39 +173,24 @@ export function Sidebar({
           people ask for already work — and where they don&rsquo;t. Coloured by Level of Traffic
           Stress.
         </p>
-        <div
-          className="mt-2 space-y-1.5"
-          role="radiogroup"
-          aria-label="Traffic-stress overlay"
+        <label
+          className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md p-2.5 text-sm transition-colors ${
+            stressOn
+              ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
+              : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
+          }`}
         >
-          {STRESS_OPTIONS.map((opt) => {
-            const active = stressDataset === opt.id;
-            return (
-              <label
-                key={opt.id ?? "off"}
-                className={`flex cursor-pointer items-start gap-2 rounded-md p-2.5 text-sm transition-colors ${
-                  active
-                    ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
-                    : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="stress-overlay"
-                  className="mt-0.5 accent-pink-600"
-                  checked={active}
-                  onChange={() => onSelectStressDataset(opt.id)}
-                />
-                <span className="min-w-0">
-                  <span className="block font-medium leading-snug">{opt.label}</span>
-                  {opt.blurb && (
-                    <span className="mt-0.5 block text-[11px] text-slate-400">{opt.blurb}</span>
-                  )}
-                </span>
-              </label>
-            );
-          })}
-        </div>
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-pink-600"
+            checked={stressOn}
+            onChange={(e) => onToggleStress(e.target.checked)}
+          />
+          <span className="min-w-0">
+            <span className="block font-medium leading-snug">Show the existing network</span>
+            <span className="mt-0.5 block text-[11px] text-slate-400">{STRESS_DATASET.blurb}</span>
+          </span>
+        </label>
         {stressLoading && (
           <p className="mt-2 text-[11px] text-slate-400">Loading stress network…</p>
         )}

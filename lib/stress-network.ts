@@ -2,30 +2,12 @@
 // under public/stress/ and fetched lazily the first time the overlay is enabled;
 // regenerate it with `npm run stress` (scripts/fetch-stress-network.mjs).
 
-export type StressDatasetId = "existing" | "go-boston";
-
-export type StressDataset = {
-  id: StressDatasetId;
-  label: string;
-  blurb: string;
+export const STRESS_DATASET = {
+  label: "Existing network",
+  blurb: "Boston's current bikeable streets, scored by traffic stress",
   /** Static path served from public/. */
-  path: string;
-};
-
-export const STRESS_DATASETS: StressDataset[] = [
-  {
-    id: "existing",
-    label: "Existing network",
-    blurb: "Boston's current bikeable streets, scored by traffic stress",
-    path: "/stress/existing.geojson",
-  },
-  {
-    id: "go-boston",
-    label: "Go Boston 2030 plan",
-    blurb: "Priority and future projects from the city's Go Boston 2030 plan",
-    path: "/stress/go-boston.geojson",
-  },
-];
+  path: "/stress/existing.geojson",
+} as const;
 
 /**
  * Level-of-Traffic-Stress colour ramp. LTS 1 = comfortable for most people,
@@ -55,8 +37,6 @@ export type StressFeatureProps = {
   lts: number | null;
   name: string | null;
   osmId: number | null;
-  goBoston?: "priority" | "future" | null;
-  project?: string | null;
 };
 
 export const STRESS_ATTRIBUTION =

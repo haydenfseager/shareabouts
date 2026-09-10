@@ -1,9 +1,17 @@
 "use client";
 
 import type { HotNeighborhood, HotRoute } from "@/lib/types";
-import { STRESS_DATASET } from "@/lib/stress-network";
+import { LTS_COLOR, STRESS_DATASET } from "@/lib/stress-network";
 
 type RecentReason = { id: string; reason: string; createdAt: string };
+
+const LTS_TOGGLES: { lts: number; label: string }[] = [
+  { lts: 0, label: "Off-street" },
+  { lts: 1, label: "LTS 1" },
+  { lts: 2, label: "LTS 2" },
+  { lts: 3, label: "LTS 3" },
+  { lts: 4, label: "LTS 4" },
+];
 
 export function Sidebar({
   loading,
@@ -18,6 +26,8 @@ export function Sidebar({
   onSelectNeighborhood,
   stressOn,
   onToggleStress,
+  stressLevels,
+  onToggleStressLevel,
   stressLoading,
   stressFailed,
   onRetryStress,
@@ -37,6 +47,8 @@ export function Sidebar({
   onSelectNeighborhood: (name: string) => void;
   stressOn: boolean;
   onToggleStress: (on: boolean) => void;
+  stressLevels: ReadonlySet<number>;
+  onToggleStressLevel: (lts: number) => void;
   stressLoading: boolean;
   stressFailed: boolean;
   onRetryStress: () => void;
@@ -191,6 +203,35 @@ export function Sidebar({
             <span className="mt-0.5 block text-[11px] text-slate-400">{STRESS_DATASET.blurb}</span>
           </span>
         </label>
+        {stressOn && (
+          <fieldset className="mt-2">
+            <legend className="text-[11px] text-slate-400">Stress levels shown</legend>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {LTS_TOGGLES.map(({ lts, label }) => {
+                const on = stressLevels.has(lts);
+                return (
+                  <button
+                    key={lts}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => onToggleStressLevel(lts)}
+                    className={`flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] ring-1 transition-colors ${
+                      on
+                        ? "bg-white text-slate-700 ring-slate-300"
+                        : "bg-slate-50 text-slate-400 ring-slate-200"
+                    }`}
+                  >
+                    <span
+                      className="inline-block h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: LTS_COLOR[lts], opacity: on ? 1 : 0.3 }}
+                    />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
         {stressLoading && (
           <p className="mt-2 text-[11px] text-slate-400">Loading stress network…</p>
         )}

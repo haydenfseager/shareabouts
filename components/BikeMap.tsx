@@ -59,6 +59,9 @@ import { Sidebar } from "./Sidebar";
 /** The vendored stress GeoJSON: a FeatureCollection of LTS-scored street segments. */
 type StressCollection = FeatureCollection<LineString, StressFeatureProps>;
 
+/** Every Level-of-Traffic-Stress bucket the overlay can filter by (0 = off-street). */
+const STRESS_LEVELS = [0, 1, 2, 3, 4] as const;
+
 // react-leaflet's GeoJSON props omit `renderer`, but Leaflet forwards the option
 // straight onto the layer and every child polyline it builds — that's how ~2.5k
 // segments share one <canvas> instead of spawning 2.5k SVG nodes.
@@ -223,7 +226,7 @@ function escapeHtml(value: string): string {
 /** LTS colour ramp for a stress segment; grey when the score is unknown. */
 function stressLineStyle(feature?: Feature<Geometry>): L.PathOptions {
   const props = feature?.properties as StressFeatureProps | undefined;
-  return { color: ltsColor(props?.lts ?? null), weight: 2, opacity: 0.75 };
+  return { color: ltsColor(props?.lts ?? null), weight: 3, opacity: 0.75 };
 }
 
 /** Popup with the street name, its LTS label and a link to the OSM way. */
@@ -244,30 +247,27 @@ function bindStressPopup(feature: Feature<Geometry>, layer: L.Layer): void {
 /**
  * The traffic-stress network, drawn to a shared canvas in a dedicated low-z pane
  * so the lines sit under the heatmap and the drawn/highlight layers but over the
- * base tiles. Mounted only while the overlay is on.
+ * base tiles. Mounted only while the overlay is on; the call site keys it on the
+ * visible-levels set so a stress-level toggle rebuilds the (filtered) layer.
  */
 function StressLayer({
   data,
   renderer,
+  visibleLevels,
 }: {
   data: StressCollection;
   renderer: L.Renderer;
+  visibleLevels: ReadonlySet<number>;
 }) {
-  const map = useMap();
-  // Leaflet auto-adds the shared canvas renderer to the map when the first path
-  // mounts; drop it on unmount so toggling the overlay off leaves nothing behind
-  // in the "stress" pane.
-  useEffect(
-    () => () => {
-      if (map.hasLayer(renderer)) map.removeLayer(renderer);
-    },
-    [map, renderer],
-  );
   return (
     <CanvasGeoJSON
       data={data}
       pane="stress"
       renderer={renderer}
+      filter={(feature) => {
+        const lts = (feature.properties as StressFeatureProps | null)?.lts;
+        return lts == null || visibleLevels.has(lts);
+      }}
       style={stressLineStyle}
       onEachFeature={bindStressPopup}
       attribution={STRESS_ATTRIBUTION}
@@ -434,12 +434,17 @@ export default function BikeMap() {
   const [stressOn, setStressOn] = useState(false);
   const [stressData, setStressData] = useState<StressCollection | null>(null);
   const [stressError, setStressError] = useState<string | null>(null);
+  // Which LTS levels to draw; all on by default.
+  const [stressLevels, setStressLevels] = useState<ReadonlySet<number>>(
+    () => new Set(STRESS_LEVELS),
+  );
   const isMobile = useIsMobile();
 
   const stressLoading = stressOn && stressData == null && stressError == null;
+  const stressLevelKey = STRESS_LEVELS.filter((lts) => stressLevels.has(lts)).join("-");
 
   // One shared canvas for the whole stress network (2.5k polylines as SVG is slow).
-  // `tolerance` widens the click target so the 2px lines are easy to tap.
+  // `tolerance` widens the click target so the 3px lines are easy to tap.
   const stressRenderer = useMemo(
     () => L.canvas({ padding: 0.5, tolerance: 4, pane: "stress" }),
     [],
@@ -451,6 +456,13 @@ export default function BikeMap() {
     if (!map || map.getPane("stress")) return;
     map.createPane("stress").style.zIndex = "250";
   }, [map]);
+
+  // Leaflet auto-adds the shared canvas renderer to the map with the first path;
+  // pull it back out once the overlay is fully off so the "stress" pane is empty.
+  useEffect(() => {
+    if (stressOn || !map) return;
+    if (map.hasLayer(stressRenderer)) map.removeLayer(stressRenderer);
+  }, [stressOn, map, stressRenderer]);
 
   // Fetch the network the first time it's switched on; keep it once loaded.
   useEffect(() => {
@@ -479,6 +491,15 @@ export default function BikeMap() {
   const toggleStress = useCallback((on: boolean) => {
     setStressOn(on);
     if (on) setStressError(null); // let a previously failed load retry
+  }, []);
+
+  const toggleStressLevel = useCallback((lts: number) => {
+    setStressLevels((prev) => {
+      const next = new Set(prev);
+      if (next.has(lts)) next.delete(lts);
+      else next.add(lts);
+      return next;
+    });
   }, []);
 
   const retryStress = useCallback(() => setStressError(null), []);
@@ -816,6 +837,8 @@ export default function BikeMap() {
           onSelectNeighborhood={selectNeighborhood}
           stressOn={stressOn}
           onToggleStress={toggleStress}
+          stressLevels={stressLevels}
+          onToggleStressLevel={toggleStressLevel}
           stressLoading={stressLoading}
           stressFailed={stressError != null}
           onRetryStress={retryStress}
@@ -852,7 +875,12 @@ export default function BikeMap() {
           {/* Traffic-stress overlay — sits above the tiles, below the heat (see the
               "stress" pane). Hidden while drawing, like the heatmap. */}
           {mode === "view" && stressOn && stressData && (
-            <StressLayer data={stressData} renderer={stressRenderer} />
+            <StressLayer
+              key={stressLevelKey}
+              data={stressData}
+              renderer={stressRenderer}
+              visibleLevels={stressLevels}
+            />
           )}
 
           {/* Hidden during the draw flow so the existing demand can't steer where people route. */}
@@ -978,7 +1006,11 @@ export default function BikeMap() {
 
         {/* The legend only describes the heat layer, so it hides whenever the heat does. */}
         {mode === "view" && (
-          <MapLegend compact={isMobile} showStress={stressOn && stressData != null} />
+          <MapLegend
+            compact={isMobile}
+            showStress={stressOn && stressData != null}
+            stressLevels={stressLevels}
+          />
         )}
 
         {mode === "view" && selectedRoute && (
@@ -1079,9 +1111,11 @@ export default function BikeMap() {
 function MapLegend({
   compact = false,
   showStress = false,
+  stressLevels,
 }: {
   compact?: boolean;
   showStress?: boolean;
+  stressLevels?: ReadonlySet<number>;
 }) {
   return (
     <div
@@ -1089,7 +1123,7 @@ function MapLegend({
         compact ? "bottom-2 right-2" : "bottom-6 right-3"
       }`}
     >
-      {showStress && <StressLegendCard compact={compact} />}
+      {showStress && <StressLegendCard compact={compact} visibleLevels={stressLevels} />}
       <LegendCard compact={compact} title="Demand">
         <div
           className={`rounded-full bg-[linear-gradient(to_right,#1d4ed8,#0891b2,#16a34a,#eab308,#f97316,#dc2626)] ${
@@ -1130,13 +1164,27 @@ function LegendCard({
   );
 }
 
-/** Off-street + LTS 1–4 swatches, shown while the traffic-stress overlay is on. */
-function StressLegendCard({ compact }: { compact: boolean }) {
+/**
+ * Off-street + LTS 1–4 swatches, shown while the traffic-stress overlay is on.
+ * Rows for levels hidden by the sidebar filter are dimmed.
+ */
+function StressLegendCard({
+  compact,
+  visibleLevels,
+}: {
+  compact: boolean;
+  visibleLevels?: ReadonlySet<number>;
+}) {
   return (
     <LegendCard compact={compact} title="Traffic stress">
       <ul className={`space-y-1 text-slate-600 ${compact ? "text-[10px]" : "text-[11px]"}`}>
         {[0, 1, 2, 3, 4].map((lts) => (
-          <li key={lts} className="flex items-center gap-1.5">
+          <li
+            key={lts}
+            className={`flex items-center gap-1.5 ${
+              visibleLevels && !visibleLevels.has(lts) ? "opacity-35" : ""
+            }`}
+          >
             <span
               className="inline-block h-1 w-4 shrink-0 rounded-full"
               style={{ backgroundColor: LTS_COLOR[lts] }}

@@ -21,6 +21,7 @@ import {
   DEFAULT_ZOOM,
   MAX_ZOOM,
   MIN_ZOOM,
+  haversine,
   lineLength,
   sampleLine,
   type LatLng,
@@ -70,6 +71,23 @@ function heatSizeForZoom(zoom: number): { radius: number; blur: number } {
     radius: Math.max(6, Math.round(HEAT_BASE_RADIUS * factor)),
     blur: Math.max(8, Math.round(HEAT_BASE_BLUR * factor)),
   };
+}
+
+// "Routes near here": a background tap in view mode collects every route whose
+// polyline passes within NEARBY_RADIUS_M of the tapped point. Distance is the
+// min haversine to a ~NEARBY_SAMPLE_M-spaced sampling of the line — close enough
+// at this threshold, and cheap for the whole (client-side) route set.
+const NEARBY_RADIUS_M = 200;
+const NEARBY_SAMPLE_M = 20;
+
+/** Shortest distance (m) from `point` to a sampled `geometry` polyline. */
+function distanceToRoute(point: LatLng, geometry: LatLng[]): number {
+  let min = Infinity;
+  for (const s of sampleLine(geometry, NEARBY_SAMPLE_M)) {
+    const d = haversine(point, s);
+    if (d < min) min = d;
+  }
+  return min;
 }
 
 type Mode = "view" | "draw";
@@ -263,11 +281,21 @@ function CrosshairPreview({ active, from }: { active: boolean; from: LatLng | nu
   );
 }
 
-/** Clears the highlighted route when the map background (not the line) is clicked. */
-function MapClickClear({ active, onClear }: { active: boolean; onClear: () => void }) {
+/**
+ * View-mode taps on the map background. The highlighted route casing/line is
+ * `interactive={false}`, so a tap on it lands here too — every view-mode click
+ * opens (or toggles shut) the "routes near here" panel at that point.
+ */
+function ViewClickController({
+  active,
+  onBackgroundClick,
+}: {
+  active: boolean;
+  onBackgroundClick: (p: LatLng) => void;
+}) {
   useMapEvents({
-    click() {
-      if (active) onClear();
+    click(e) {
+      if (active) onBackgroundClick([e.latlng.lat, e.latlng.lng]);
     },
   });
   return null;
@@ -288,6 +316,9 @@ export default function BikeMap() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [outsideHint, setOutsideHint] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  // The point of the last view-mode background tap; non-null while the
+  // "routes near here" panel is open.
+  const [nearbyQuery, setNearbyQuery] = useState<LatLng | null>(null);
   const isMobile = useIsMobile();
 
   // Clear the "outside Boston" nudge a few seconds after it last fired.
@@ -340,6 +371,35 @@ export default function BikeMap() {
     setSelectedRouteId((current) => (current === id ? null : id));
   }, []);
 
+  // Routes passing within NEARBY_RADIUS_M of the tapped point, nearest first.
+  const nearbyRoutes = useMemo(() => {
+    if (!nearbyQuery) return [];
+    return routes
+      .map((route) => ({ route, distance: distanceToRoute(nearbyQuery, route.geometry) }))
+      .filter((entry) => entry.distance <= NEARBY_RADIUS_M)
+      .sort((a, b) => a.distance - b.distance);
+  }, [routes, nearbyQuery]);
+
+  // A background tap in view mode drops any highlighted route and toggles the
+  // panel: first tap opens it at that point, a second tap anywhere dismisses it.
+  const handleBackgroundClick = useCallback((p: LatLng) => {
+    setSelectedRouteId(null);
+    setNearbyQuery((current) => (current ? null : p));
+  }, []);
+
+  const closeNearby = useCallback(() => {
+    setNearbyQuery(null);
+    setSelectedRouteId(null);
+  }, []);
+
+  // Nothing nearby: show a brief nudge instead of an empty panel, then clear it.
+  // (Same async-timeout pattern as the "outside Boston" hint above.)
+  useEffect(() => {
+    if (!nearbyQuery || nearbyRoutes.length > 0) return;
+    const t = setTimeout(() => setNearbyQuery(null), 2500);
+    return () => clearTimeout(t);
+  }, [nearbyQuery, nearbyRoutes.length]);
+
   const drawing = mode === "draw" && !finished;
   const describing = mode === "draw" && finished;
   // On phones, drawing takes over the whole screen: hide the sidebar and let the map fill it.
@@ -388,6 +448,7 @@ export default function BikeMap() {
   const startDrawing = useCallback(() => {
     resetDraft();
     setSelectedRouteId(null);
+    setNearbyQuery(null);
     setMode("draw");
   }, [resetDraft]);
 
@@ -587,9 +648,23 @@ export default function BikeMap() {
               ))}
             </>
           )}
-          <MapClickClear
-            active={mode === "view" && !!selectedRoute}
-            onClear={() => setSelectedRouteId(null)}
+          {/* Marks the point the "routes near here" query was run from. */}
+          {mode === "view" && nearbyQuery && nearbyRoutes.length > 0 && (
+            <CircleMarker
+              center={nearbyQuery}
+              radius={7}
+              pathOptions={{
+                color: "#0f172a",
+                weight: 2,
+                fillColor: "#38bdf8",
+                fillOpacity: 0.9,
+              }}
+              interactive={false}
+            />
+          )}
+          <ViewClickController
+            active={mode === "view"}
+            onBackgroundClick={handleBackgroundClick}
           />
         </MapContainer>
 
@@ -620,6 +695,16 @@ export default function BikeMap() {
               ✕
             </button>
           </div>
+        )}
+
+        {mode === "view" && nearbyQuery && (
+          <NearbyPanel
+            isMobile={isMobile}
+            entries={nearbyRoutes}
+            selectedRouteId={selectedRouteId}
+            onSelect={selectRoute}
+            onClose={closeNearby}
+          />
         )}
 
         {fullscreenDraw && drawing && <Crosshair />}
@@ -687,6 +772,93 @@ function MapLegend({ compact = false }: { compact?: boolean }) {
 
 function meters(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
+}
+
+/**
+ * Lists the routes found near a view-mode background tap. Desktop: a card in the
+ * top-right, clear of the legend (bottom-right) and the highlight chip
+ * (top-left). Mobile: a bottom sheet styled like `DrawCard`, but `fixed` rather
+ * than `absolute` — in view mode the map is only ~48vh, so it has to pin to the
+ * viewport, not the map box. Tapping an entry highlights that route and frames
+ * it (via `selectedRouteId`).
+ */
+function NearbyPanel({
+  isMobile,
+  entries,
+  selectedRouteId,
+  onSelect,
+  onClose,
+}: {
+  isMobile: boolean;
+  entries: { route: BikeRoute; distance: number }[];
+  selectedRouteId: string | null;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  if (entries.length === 0) {
+    return (
+      <div className="pointer-events-none absolute left-1/2 top-3 z-[1000] -translate-x-1/2 rounded-full bg-slate-900/85 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
+        No routes within {NEARBY_RADIUS_M} m of there
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={
+        isMobile
+          ? "fixed inset-x-0 bottom-0 z-[1000] max-h-[60vh] overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-[0_-6px_24px_rgba(0,0,0,0.18)] ring-1 ring-black/10"
+          : "absolute right-3 top-3 z-[1000] max-h-[calc(100%-6.5rem)] w-72 overflow-y-auto rounded-lg bg-white p-4 shadow-xl ring-1 ring-black/10"
+      }
+    >
+      {isMobile && <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-slate-300" />}
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-800">
+          {entries.length} route{entries.length === 1 ? "" : "s"} near here
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="-mr-1 -mt-1 shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+        >
+          ✕
+        </button>
+      </div>
+      <ul className="mt-2 space-y-2">
+        {entries.map(({ route, distance }) => {
+          const active = route.id === selectedRouteId;
+          return (
+            <li key={route.id}>
+              <button
+                type="button"
+                aria-pressed={active}
+                onClick={() => onSelect(route.id)}
+                className={`block w-full rounded-md p-3 text-left text-xs transition-colors ${
+                  active
+                    ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
+                    : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
+                }`}
+              >
+                <p className={`leading-snug ${route.reason ? "" : "italic text-slate-400"}`}>
+                  {route.reason ? `“${route.reason}”` : "no note"}
+                </p>
+                <p className={`mt-1 text-[11px] ${active ? "text-pink-600" : "text-slate-400"}`}>
+                  {new Date(route.createdAt).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}{" "}
+                  · {meters(lineLength(route.geometry))} · {route.geometry.length} points ·{" "}
+                  {meters(distance)} away
+                </p>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 function DrawCard({

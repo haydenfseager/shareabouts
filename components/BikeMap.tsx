@@ -235,18 +235,14 @@ function makeStressLineStyle(breakdown: boolean) {
   };
 }
 
-/** Popup with the street name, its LTS label and a link to the OSM way. */
+/** Popup with the street name and its Level of Traffic Stress rating. */
 function bindStressPopup(feature: Feature<Geometry>, layer: L.Layer): void {
   const props = feature.properties as StressFeatureProps | null;
   const lts = props?.lts ?? null;
   const ltsText = lts == null ? "Stress rating unknown" : (LTS_LABEL[lts] ?? `LTS ${lts}`);
   const name = props?.name ? escapeHtml(props.name) : "Unnamed segment";
-  const osmLink =
-    props?.osmId != null
-      ? `<p><a href="https://www.openstreetmap.org/way/${props.osmId}" target="_blank" rel="noreferrer">View on OpenStreetMap</a></p>`
-      : "";
   layer.bindPopup(
-    `<p class="font-semibold text-slate-800">${name}</p><p class="text-slate-600">${ltsText}</p>${osmLink}`,
+    `<p class="font-semibold text-slate-800">${name}</p><p class="text-slate-600">${ltsText}</p>`,
   );
 }
 

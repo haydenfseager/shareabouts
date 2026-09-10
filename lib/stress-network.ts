@@ -1,43 +1,42 @@
-// Metadata for the cycling stress-network overlay. The GeoJSON itself is vendored
-// under public/stress/ and fetched lazily the first time the overlay is enabled;
+// Metadata for the traffic-stress overlay. The GeoJSON itself is vendored under
+// public/stress/ and fetched lazily the first time the overlay is enabled;
 // regenerate it with `npm run stress` (scripts/fetch-stress-network.mjs).
 
 export const STRESS_DATASET = {
-  label: "Existing network",
-  blurb: "Boston's current bikeable streets",
+  label: "Boston traffic-stress map",
+  blurb: "The city's Bicycle Level of Traffic Stress score for every street (2023)",
   /** Static path served from public/. */
-  path: "/stress/existing.geojson",
+  path: "/stress/boston-blts-2023.geojson",
 } as const;
 
 /**
- * Level-of-Traffic-Stress colour ramp. LTS 1 = comfortable for most people,
- * LTS 4 = high stress; 0 = off-street path. Null/unknown falls back to grey.
+ * Bicycle Level of Traffic Stress colour ramp, matching the City of Boston's own
+ * map: 1 = least stress … 4 = most stress; 0 = not scored. See boston.gov/blts.
  */
 export const LTS_COLOR: Record<number, string> = {
-  0: "#2563eb",
-  1: "#1a9850",
-  2: "#a6d96a",
-  3: "#fdae61",
-  4: "#d73027",
+  0: "#7f7f7f",
+  1: "#198700",
+  2: "#149ece",
+  3: "#ffde3e",
+  4: "#de0404",
 };
 
 export const LTS_LABEL: Record<number, string> = {
-  0: "Off-street path",
-  1: "LTS 1 — low stress",
+  0: "Not scored",
+  1: "LTS 1 — least stress",
   2: "LTS 2",
   3: "LTS 3",
-  4: "LTS 4 — high stress",
+  4: "LTS 4 — most stress",
 };
 
 export function ltsColor(lts: number | null | undefined): string {
-  return lts == null ? "#94a3b8" : (LTS_COLOR[lts] ?? "#94a3b8");
+  return lts == null ? LTS_COLOR[0] : (LTS_COLOR[lts] ?? LTS_COLOR[0]);
 }
 
 export type StressFeatureProps = {
-  lts: number | null;
+  lts: number;
   name: string | null;
-  osmId: number | null;
 };
 
 export const STRESS_ATTRIBUTION =
-  'Stress network from cycling-stress-maps (LTS methodology by Boston Cyclists Union), derived from OpenStreetMap. Used with permission.';
+  'Traffic-stress data: <a href="https://www.boston.gov/blts">City of Boston</a> Bicycle Level of Traffic Stress (2023) — Boston Transportation Department &amp; Toole Design.';

@@ -84,6 +84,49 @@ export function Sidebar({
         </button>
       )}
 
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Traffic-stress overlay
+        </h2>
+        <p className="mt-1 text-[11px] text-slate-400">
+          Colour every Boston street by its Bicycle Level of Traffic Stress — LTS&nbsp;1 is calm
+          enough for most riders, LTS&nbsp;4 is heavy, fast traffic. See how the corridors people
+          ask for line up with the streets that already feel safe.
+        </p>
+        <label
+          className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md p-2.5 text-sm transition-colors ${
+            stressOn
+              ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
+              : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
+          }`}
+        >
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-pink-600"
+            checked={stressOn}
+            onChange={(e) => onToggleStress(e.target.checked)}
+          />
+          <span className="min-w-0">
+            <span className="block font-medium leading-snug">Show the {STRESS_DATASET.label}</span>
+            <span className="mt-0.5 block text-[11px] text-slate-400">{STRESS_DATASET.blurb}</span>
+          </span>
+        </label>
+        {stressLoading && (
+          <p className="mt-2 text-[11px] text-slate-400">Loading stress network…</p>
+        )}
+        {stressZoomedOut && !stressLoading && (
+          <p className="mt-2 text-[11px] text-slate-400">Zoom in to see the stress network.</p>
+        )}
+        {stressFailed && (
+          <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 ring-1 ring-amber-200">
+            Couldn&rsquo;t load the stress network.{" "}
+            <button type="button" onClick={onRetryStress} className="font-semibold underline">
+              Try again
+            </button>
+          </p>
+        )}
+      </div>
+
       {showRankings && hotRoutes.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -165,49 +208,6 @@ export function Sidebar({
           </ul>
         </div>
       )}
-
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Traffic-stress overlay
-        </h2>
-        <p className="mt-1 text-[11px] text-slate-400">
-          Colour every Boston street by its Bicycle Level of Traffic Stress — LTS&nbsp;1 is calm
-          enough for most riders, LTS&nbsp;4 is heavy, fast traffic. See how the corridors people
-          ask for line up with the streets that already feel safe.
-        </p>
-        <label
-          className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md p-2.5 text-sm transition-colors ${
-            stressOn
-              ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
-              : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
-          }`}
-        >
-          <input
-            type="checkbox"
-            className="mt-0.5 accent-pink-600"
-            checked={stressOn}
-            onChange={(e) => onToggleStress(e.target.checked)}
-          />
-          <span className="min-w-0">
-            <span className="block font-medium leading-snug">Show the {STRESS_DATASET.label}</span>
-            <span className="mt-0.5 block text-[11px] text-slate-400">{STRESS_DATASET.blurb}</span>
-          </span>
-        </label>
-        {stressLoading && (
-          <p className="mt-2 text-[11px] text-slate-400">Loading stress network…</p>
-        )}
-        {stressZoomedOut && !stressLoading && (
-          <p className="mt-2 text-[11px] text-slate-400">Zoom in to see the stress network.</p>
-        )}
-        {stressFailed && (
-          <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 ring-1 ring-amber-200">
-            Couldn&rsquo;t load the stress network.{" "}
-            <button type="button" onClick={onRetryStress} className="font-semibold underline">
-              Try again
-            </button>
-          </p>
-        )}
-      </div>
 
       <div>
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">

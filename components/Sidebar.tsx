@@ -16,6 +16,8 @@ export function Sidebar({
   onSelectRoute,
   selectedNeighborhood,
   onSelectNeighborhood,
+  heatOn,
+  onToggleHeat,
   stressOn,
   onToggleStress,
   stressLoading,
@@ -36,6 +38,8 @@ export function Sidebar({
   onSelectRoute: (id: string) => void;
   selectedNeighborhood: string | null;
   onSelectNeighborhood: (name: string) => void;
+  heatOn: boolean;
+  onToggleHeat: (on: boolean) => void;
   stressOn: boolean;
   onToggleStress: (on: boolean) => void;
   stressLoading: boolean;
@@ -125,6 +129,36 @@ export function Sidebar({
             </button>
           </p>
         )}
+      </div>
+
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Demand heatmap
+        </h2>
+        <p className="mt-1 text-[11px] text-slate-400">
+          The heat built from every submitted route. On by default — turn it off to read the
+          base map or the stress overlay on its own.
+        </p>
+        <label
+          className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md p-2.5 text-sm transition-colors ${
+            heatOn
+              ? "bg-pink-50 text-slate-800 ring-2 ring-pink-500"
+              : "bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-slate-300"
+          }`}
+        >
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-pink-600"
+            checked={heatOn}
+            onChange={(e) => onToggleHeat(e.target.checked)}
+          />
+          <span className="min-w-0">
+            <span className="block font-medium leading-snug">Show the demand heatmap</span>
+            <span className="mt-0.5 block text-[11px] text-slate-400">
+              Warmer colors mean more people asking for a lane there
+            </span>
+          </span>
+        </label>
       </div>
 
       {showRankings && hotRoutes.length > 0 && (

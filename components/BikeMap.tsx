@@ -226,7 +226,7 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Style for a stress segment: every street coloured by its Level of Traffic
+ * Style for a stress segment: every street colored by its Level of Traffic
  * Stress (Boston's official ramp via `ltsColor`). Thin lines and a high
  * `smoothFactor` keep ~19.6k canvas polylines cheap to project and redraw.
  */
@@ -435,6 +435,9 @@ export default function BikeMap() {
   // The point of the last view-mode background tap; non-null while the
   // "routes near here" panel is open.
   const [nearbyQuery, setNearbyQuery] = useState<LatLng | null>(null);
+  // Demand heatmap: on by default, toggled off from the sidebar to read the base
+  // map or the stress overlay on its own.
+  const [heatOn, setHeatOn] = useState(true);
   // Traffic-stress overlay: whether the network is showing, plus the lazily
   // fetched FeatureCollection / fetch error.
   const [stressOn, setStressOn] = useState(false);
@@ -840,6 +843,8 @@ export default function BikeMap() {
           onSelectRoute={selectRoute}
           selectedNeighborhood={selectedNeighborhood}
           onSelectNeighborhood={selectNeighborhood}
+          heatOn={heatOn}
+          onToggleHeat={setHeatOn}
           stressOn={stressOn}
           onToggleStress={toggleStress}
           stressLoading={stressLoading}
@@ -887,8 +892,9 @@ export default function BikeMap() {
             <StressLayer data={stressData} renderer={stressRenderer} />
           )}
 
-          {/* Hidden during the draw flow so the existing demand can't steer where people route. */}
-          {mode === "view" && <HeatLayer points={heatPoints} />}
+          {/* Hidden during the draw flow so the existing demand can't steer where
+              people route, and whenever the sidebar toggle turns it off. */}
+          {mode === "view" && heatOn && <HeatLayer points={heatPoints} />}
 
           {/* City-limits outline, always visible; a dimming mask over everything outside while drawing. */}
           {drawing && (
@@ -1008,10 +1014,14 @@ export default function BikeMap() {
           />
         </MapContainer>
 
-        {/* Legend for the demand heat (always) and the traffic-stress ramp (only
-            while that overlay is drawn); hidden entirely outside view mode. */}
-        {mode === "view" && (
-          <MapLegend compact={isMobile} showStress={stressVisible && stressData != null} />
+        {/* Legend for the demand heat and the traffic-stress ramp, each shown only
+            while its layer is; hidden entirely outside view mode or when both are off. */}
+        {mode === "view" && (heatOn || (stressVisible && stressData != null)) && (
+          <MapLegend
+            compact={isMobile}
+            showHeat={heatOn}
+            showStress={stressVisible && stressData != null}
+          />
         )}
 
         {mode === "view" && selectedRoute && (
@@ -1113,9 +1123,11 @@ export default function BikeMap() {
 
 function MapLegend({
   compact = false,
+  showHeat = true,
   showStress = false,
 }: {
   compact?: boolean;
+  showHeat?: boolean;
   showStress?: boolean;
 }) {
   return (
@@ -1125,17 +1137,19 @@ function MapLegend({
       }`}
     >
       {showStress && <StressLegendCard compact={compact} />}
-      <LegendCard compact={compact} title="Demand">
-        <div
-          className={`rounded-full bg-[linear-gradient(to_right,#1d4ed8,#0891b2,#16a34a,#eab308,#f97316,#dc2626)] ${
-            compact ? "h-1.5 w-28" : "h-2 w-40"
-          }`}
-        />
-        <div className="mt-1 flex justify-between text-[10px] text-slate-500">
-          <span>fewer</span>
-          <span>more</span>
-        </div>
-      </LegendCard>
+      {showHeat && (
+        <LegendCard compact={compact} title="Demand">
+          <div
+            className={`rounded-full bg-[linear-gradient(to_right,#1d4ed8,#0891b2,#16a34a,#eab308,#f97316,#dc2626)] ${
+              compact ? "h-1.5 w-28" : "h-2 w-40"
+            }`}
+          />
+          <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+            <span>fewer</span>
+            <span>more</span>
+          </div>
+        </LegendCard>
+      )}
     </div>
   );
 }
@@ -1167,7 +1181,7 @@ function LegendCard({
 
 /**
  * LTS 1–4 swatches (Boston's official ramp) plus a final "not scored" row for the
- * grey segments. Shown whenever the traffic-stress overlay is drawn. All colours
+ * grey segments. Shown whenever the traffic-stress overlay is drawn. All colors
  * come from LTS_COLOR — no hard-coded hex here.
  */
 function StressLegendCard({ compact }: { compact: boolean }) {

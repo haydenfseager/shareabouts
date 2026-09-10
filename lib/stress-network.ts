@@ -10,7 +10,7 @@ export const STRESS_DATASET = {
 } as const;
 
 /**
- * Bicycle Level of Traffic Stress colour ramp, matching the City of Boston's own
+ * Bicycle Level of Traffic Stress color ramp, matching the City of Boston's own
  * map: 1 = least stress … 4 = most stress; 0 = not scored. See boston.gov/blts.
  */
 export const LTS_COLOR: Record<number, string> = {

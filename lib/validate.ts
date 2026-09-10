@@ -6,7 +6,10 @@ export const MAX_VERTICES = 200;
 export const MIN_ROUTE_METERS = 30;
 export const MAX_ROUTE_METERS = 25_000;
 
-export type ParsedRoute = { geometry: LatLng[]; reason: string | null };
+/** US ZIP: five digits, optionally followed by a `-` and four more (ZIP+4). */
+export const ZIP_PATTERN = /^\d{5}(-\d{4})?$/;
+
+export type ParsedRoute = { geometry: LatLng[]; reason: string | null; zip: string | null };
 
 type Result =
   | { ok: true; value: ParsedRoute }
@@ -29,7 +32,7 @@ export function parseRouteInput(body: unknown): Result {
     return { ok: false, error: "Expected a JSON object." };
   }
 
-  const { geometry, reason } = body as Record<string, unknown>;
+  const { geometry, reason, zip } = body as Record<string, unknown>;
 
   if (!Array.isArray(geometry) || geometry.length < 2) {
     return { ok: false, error: "A route needs at least 2 points." };
@@ -67,5 +70,19 @@ export function parseRouteInput(body: unknown): Result {
     cleanReason = trimmed || null;
   }
 
-  return { ok: true, value: { geometry: points, reason: cleanReason } };
+  let cleanZip: string | null = null;
+  if (zip !== undefined && zip !== null) {
+    if (typeof zip !== "string") {
+      return { ok: false, error: "Enter a 5-digit ZIP code." };
+    }
+    const trimmed = zip.trim();
+    if (trimmed) {
+      if (!ZIP_PATTERN.test(trimmed)) {
+        return { ok: false, error: "Enter a 5-digit ZIP code." };
+      }
+      cleanZip = trimmed;
+    }
+  }
+
+  return { ok: true, value: { geometry: points, reason: cleanReason, zip: cleanZip } };
 }

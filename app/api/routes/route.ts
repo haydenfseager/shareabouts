@@ -32,6 +32,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error }, { status: 422 });
   }
 
-  const route = await insertRoute(parsed.value.geometry, parsed.value.reason);
+  const route = await insertRoute(parsed.value.geometry, parsed.value.reason, parsed.value.zip);
   return NextResponse.json({ route }, { status: 201 });
 }

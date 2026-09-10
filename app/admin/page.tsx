@@ -124,6 +124,9 @@ export default function AdminPage() {
               <p className="text-slate-800">
                 {r.reason ? `“${r.reason}”` : <span className="text-slate-400">no comment</span>}
               </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {r.zip ? `ZIP ${r.zip}` : <span className="text-slate-400">ZIP —</span>}
+              </p>
               <p className="mt-0.5 text-xs text-slate-400">
                 {new Date(r.createdAt).toLocaleString()} · {r.geometry.length} points ·{" "}
                 <span className="font-mono">{r.id}</span>

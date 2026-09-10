@@ -44,7 +44,7 @@ import {
   segmentInsideBoston,
 } from "@/lib/boston-boundary";
 import { BOSTON_NEIGHBORHOODS, neighborhoodAt } from "@/lib/boston-neighborhoods";
-import { MAX_REASON_LENGTH } from "@/lib/validate";
+import { MAX_REASON_LENGTH, ZIP_PATTERN } from "@/lib/validate";
 import type { BikeRoute, HotNeighborhood, HotRoute } from "@/lib/types";
 import {
   LTS_COLOR,
@@ -421,6 +421,7 @@ export default function BikeMap() {
   const [hover, setHover] = useState<LatLng | null>(null);
   const [finished, setFinished] = useState(false);
   const [reason, setReason] = useState("");
+  const [zip, setZip] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [outsideHint, setOutsideHint] = useState(false);
@@ -720,6 +721,7 @@ export default function BikeMap() {
     setHover(null);
     setFinished(false);
     setReason("");
+    setZip("");
     setSubmitError(null);
     setOutsideHint(false);
   }, []);
@@ -790,7 +792,11 @@ export default function BikeMap() {
       const res = await fetch("/api/routes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ geometry: draft, reason: reason.trim() || undefined }),
+        body: JSON.stringify({
+          geometry: draft,
+          reason: reason.trim() || undefined,
+          zip: zip.trim() || undefined,
+        }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? `Submission failed (${res.status})`);
@@ -802,7 +808,7 @@ export default function BikeMap() {
     } finally {
       setSubmitting(false);
     }
-  }, [draft, reason, loadRoutes, resetDraft]);
+  }, [draft, reason, zip, loadRoutes, resetDraft]);
 
   // Keyboard shortcuts: Enter finishes, Escape cancels, Backspace undoes a point.
   useEffect(() => {
@@ -1087,9 +1093,11 @@ export default function BikeMap() {
             outsideHint={outsideHint}
             leavesBoston={draftLeavesBoston}
             reason={reason}
+            zip={zip}
             submitting={submitting}
             submitError={submitError}
             onReasonChange={setReason}
+            onZipChange={setZip}
             onAddCenterPoint={addCenterPoint}
             onUndo={undoPoint}
             onClear={resetDraft}
@@ -1277,9 +1285,11 @@ function DrawCard({
   outsideHint,
   leavesBoston,
   reason,
+  zip,
   submitting,
   submitError,
   onReasonChange,
+  onZipChange,
   onAddCenterPoint,
   onUndo,
   onClear,
@@ -1296,9 +1306,11 @@ function DrawCard({
   outsideHint: boolean;
   leavesBoston: boolean;
   reason: string;
+  zip: string;
   submitting: boolean;
   submitError: string | null;
   onReasonChange: (v: string) => void;
+  onZipChange: (v: string) => void;
   onAddCenterPoint: () => void;
   onUndo: () => void;
   onClear: () => void;
@@ -1307,6 +1319,9 @@ function DrawCard({
   onBackToDrawing: () => void;
   onSubmit: () => void;
 }) {
+  // Non-blocking nudge; the server is the source of truth for ZIP validity.
+  const zipLooksInvalid = zip.trim() !== "" && !ZIP_PATTERN.test(zip.trim());
+
   return (
     <div
       className={
@@ -1413,6 +1428,22 @@ function DrawCard({
           <div className="mt-1 text-right text-[10px] text-slate-400">
             {reason.length}/{MAX_REASON_LENGTH}
           </div>
+          <label className="mt-3 block text-xs font-medium text-slate-600">
+            ZIP code (optional)
+            <input
+              type="text"
+              value={zip}
+              onChange={(e) => onZipChange(e.target.value)}
+              inputMode="numeric"
+              autoComplete="postal-code"
+              maxLength={10}
+              placeholder="02118"
+              className="mt-1.5 block w-28 rounded-md border border-slate-300 p-2 text-xs text-slate-800 outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600"
+            />
+          </label>
+          {zipLooksInvalid && (
+            <p className="mt-1 text-[10px] text-slate-400">5-digit ZIP (e.g. 02118)</p>
+          )}
           {submitError && <p className="mt-1 text-xs text-red-600">{submitError}</p>}
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button

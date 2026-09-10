@@ -53,6 +53,7 @@ const SCHEMA = [
      id         TEXT PRIMARY KEY,
      geometry   TEXT NOT NULL,          -- JSON: [[lat, lng], ...]
      reason     TEXT,
+     zip        TEXT,                   -- optional self-reported US ZIP, NULL = not collected
      created_at TEXT NOT NULL           -- ISO 8601
    )`,
   `CREATE TABLE IF NOT EXISTS rate_hits (
@@ -68,6 +69,13 @@ export function ensureSchema(): Promise<void> {
     const client = getClient();
     globalForDb.__bikeSchema = (async () => {
       for (const statement of SCHEMA) await client.execute(statement);
+      // Migrate DBs created before the `zip` column existed. SQLite has no
+      // `ADD COLUMN IF NOT EXISTS`, so probe the table first. Non-destructive:
+      // existing rows get NULL ("not collected").
+      const info = await client.execute("PRAGMA table_info(routes)");
+      if (!info.rows.some((r) => r.name === "zip")) {
+        await client.execute("ALTER TABLE routes ADD COLUMN zip TEXT");
+      }
     })().catch((err) => {
       // Let the next call retry rather than caching a rejected promise.
       globalForDb.__bikeSchema = undefined;
@@ -77,19 +85,26 @@ export function ensureSchema(): Promise<void> {
   return globalForDb.__bikeSchema;
 }
 
-type Row = { id: string; geometry: string; reason: string | null; created_at: string };
+type Row = {
+  id: string;
+  geometry: string;
+  reason: string | null;
+  zip: string | null;
+  created_at: string;
+};
 
 const rowToRoute = (r: Row): BikeRoute => ({
   id: r.id,
   geometry: JSON.parse(r.geometry) as LatLng[],
   reason: r.reason,
+  zip: r.zip,
   createdAt: r.created_at,
 });
 
 export async function listRoutes(): Promise<BikeRoute[]> {
   await ensureSchema();
   const rs = await getClient().execute(
-    "SELECT id, geometry, reason, created_at FROM routes ORDER BY created_at DESC",
+    "SELECT id, geometry, reason, zip, created_at FROM routes ORDER BY created_at DESC",
   );
   return rs.rows.map((r) => rowToRoute(r as unknown as Row));
 }
@@ -100,17 +115,22 @@ export async function countRoutes(): Promise<number> {
   return Number(rs.rows[0].n);
 }
 
-export async function insertRoute(geometry: LatLng[], reason: string | null): Promise<BikeRoute> {
+export async function insertRoute(
+  geometry: LatLng[],
+  reason: string | null,
+  zip: string | null,
+): Promise<BikeRoute> {
   await ensureSchema();
   const route: BikeRoute = {
     id: crypto.randomUUID(),
     geometry,
     reason,
+    zip,
     createdAt: new Date().toISOString(),
   };
   await getClient().execute({
-    sql: "INSERT INTO routes (id, geometry, reason, created_at) VALUES (?, ?, ?, ?)",
-    args: [route.id, JSON.stringify(route.geometry), route.reason, route.createdAt],
+    sql: "INSERT INTO routes (id, geometry, reason, zip, created_at) VALUES (?, ?, ?, ?, ?)",
+    args: [route.id, JSON.stringify(route.geometry), route.reason, route.zip, route.createdAt],
   });
   return route;
 }

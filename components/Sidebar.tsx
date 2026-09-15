@@ -102,6 +102,11 @@ export function Sidebar({
         </button>
       )}
 
+      <p className="text-[11px] leading-relaxed text-slate-400">
+        Submissions are public. Keep it respectful — inappropriate content is removed and abusive
+        senders are blocked.
+      </p>
+
       <div>
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Traffic-stress overlay

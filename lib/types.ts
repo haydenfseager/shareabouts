@@ -16,6 +16,18 @@ export type BikeRoute = {
 };
 
 /**
+ * Admin-only view of a route: everything in `BikeRoute` plus its moderation
+ * state. Never sent to the public map — only `/admin` (with a valid
+ * `ADMIN_TOKEN`) can request `GET /api/routes?all=1`.
+ */
+export type AdminBikeRoute = BikeRoute & {
+  /** Distinct IPs that have reported this route. */
+  reportCount: number;
+  /** True once reportCount crossed the auto-hide threshold. */
+  hidden: boolean;
+};
+
+/**
  * A corridor in the "most requested" ranking: a real submitted route plus the
  * overlap-density figures computed for it on the client (see `BikeMap`).
  */

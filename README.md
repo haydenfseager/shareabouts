@@ -88,9 +88,10 @@ databases — the guarded `ALTER TABLE` migrations are non-destructive.
 | `GET`    | `/api/routes`            | –                                     | `{ routes, count }` (hidden routes excluded) |
 | `GET`    | `/api/routes?all=1`      | `Authorization: Bearer <ADMIN_TOKEN>` | `{ routes, count }` — includes hidden routes + each one's `reportCount`/`hidden` |
 | `POST`   | `/api/routes`            | `{ geometry: [[lat,lng],…], reason?, zip? }` | `201 { route }` · `403/422/400` · `429`  |
-| `POST`   | `/api/routes/:id/report` | –                                     | `200 { reportCount, hidden }` · `404` |
-| `POST`   | `/api/routes/:id/ban`    | `Authorization: Bearer <ADMIN_TOKEN>`, optional `{ reason? }` | bans the route's `ip_hash` and deletes it — `200 { banned: true, deleted }` · `400/401/404/503` |
-| `POST`   | `/api/routes/:id/unhide` | `Authorization: Bearer <ADMIN_TOKEN>` | clears `hidden_at` — `200 { unhidden }` · `401/404/503` |
+| `POST`   | `/api/routes/:id/report` | –                                     | `200 { reportCount, hidden }` · `403` (reporter IP banned) · `404` |
+| `POST`   | `/api/routes/:id/ban`    | `Authorization: Bearer <ADMIN_TOKEN>`, optional `{ reason? }` | bans the route's submitter `ip_hash` and deletes it — `200 { banned: true, deleted }` · `400/401/404/503` |
+| `POST`   | `/api/routes/:id/unhide` | `Authorization: Bearer <ADMIN_TOKEN>` | clears `hidden_at` **and** the route's `route_reports` — `200 { unhidden }` · `401/404/503` |
+| `POST`   | `/api/routes/:id/ban-reporters` | `Authorization: Bearer <ADMIN_TOKEN>`, optional `{ reason? }` | bans every distinct `ip_hash` that reported the route, clears its `route_reports`, and unhides it — `200 { bannedCount, unhidden }` · `401/404/503` |
 | `DELETE` | `/api/routes/:id`        | `Authorization: Bearer <ADMIN_TOKEN>` | `200 { deleted }` · `401/404/503`    |
 
 `POST /api/routes` validation (`lib/validate.ts`): 2–200 points, total length
@@ -99,7 +100,9 @@ filter (`lib/moderation.ts`, the [`bad-words`][bad-words] package), optional
 `zip` matching `\d{5}(-\d{4})?` (blank → `NULL`), and **the entire route inside
 the City of Boston** — every vertex and every point along each segment. Each IP
 may submit **5 routes per minute** (`lib/rate-limit.ts`); over that returns `429`
-with `Retry-After`. A banned IP gets `403` before any of the above run.
+with `Retry-After`. A banned IP gets `403` before any of the above run — this
+check also runs on `POST /api/routes/:id/report`, so a banned IP can't report
+routes either, only submit them.
 
 [bad-words]: https://www.npmjs.com/package/bad-words
 
@@ -161,6 +164,7 @@ app/
   api/routes/[id]/report/route.ts POST — flag a route
   api/routes/[id]/ban/route.ts    POST — ban submitter + delete (admin)
   api/routes/[id]/unhide/route.ts POST — clear a report-hide (admin)
+  api/routes/[id]/ban-reporters/route.ts POST — ban reporters + restore (admin)
 components/
   MapClient.tsx            ssr:false dynamic wrapper
   BikeMap.tsx              map, heat layer, stress overlay, draw tool, report button
@@ -227,14 +231,22 @@ Four layers, in order of when they kick in:
    storage) and Reload to see everything, including hidden/reported routes and
    their report counts. From there:
    - **Delete** — remove a route.
-   - **Ban & Delete** — block the route's submitter (by hashed IP) from
+   - **Ban & Delete** — block the route's *submitter* (by hashed IP) from
      submitting again, and remove the route.
-   - **Unhide** — a route auto-hidden by a bad-faith report pile-on isn't
-     banned; clear its hidden state to restore it.
-4. **IP bans** — `POST /api/routes` checks `banned_ips` before anything else
-   and returns `403` for a banned IP. There's currently no UI to reverse a
-   ban (a small "banned IPs" admin view would be a natural follow-up); until
-   then that's a direct database edit (`DELETE FROM banned_ips WHERE ip_hash = ?`).
+   - **Unhide** — for a route hidden by genuine abuse where the reporters did
+     nothing wrong: clears `hidden_at` and the route's `route_reports`, so it
+     doesn't immediately re-hide itself.
+   - **Ban reporters & restore** — for a route hidden by a *coordinated*
+     report campaign against a legitimate route: bans every distinct IP that
+     reported it (so they can't submit *or* report again), clears the
+     reports, and restores the route. Reporter IPs are hashed the same way
+     submitter IPs are (see Privacy below) — they were already being
+     recorded for dedupe, this just makes them actionable.
+4. **IP bans** — `POST /api/routes` and `POST /api/routes/:id/report` both
+   check `banned_ips` before anything else and return `403` for a banned IP.
+   There's currently no UI to reverse a ban (a small "banned IPs" admin view
+   would be a natural follow-up); until then that's a direct database edit
+   (`DELETE FROM banned_ips WHERE ip_hash = ?`).
 
 From the shell:
 
@@ -242,6 +254,7 @@ From the shell:
 curl -X DELETE https://your-app/api/routes/<id> -H "Authorization: Bearer $ADMIN_TOKEN"
 curl -X POST https://your-app/api/routes/<id>/ban -H "Authorization: Bearer $ADMIN_TOKEN"
 curl -X POST https://your-app/api/routes/<id>/unhide -H "Authorization: Bearer $ADMIN_TOKEN"
+curl -X POST https://your-app/api/routes/<id>/ban-reporters -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 ## Notes / limitations
@@ -250,12 +263,16 @@ curl -X POST https://your-app/api/routes/<id>/unhide -H "Authorization: Bearer $
   but the limit is coarse (per IP, shared by everyone behind a NAT). Add a
   captcha (Turnstile/hCaptcha) if scripted/bulk abuse becomes a problem — IP
   bans and the content filter cover manual abuse, not automated submission.
-- **Privacy:** every route now stores a salted SHA-256 hash of the submitter's
+- **Privacy:** every route stores a salted SHA-256 hash of the *submitter's*
   IP (`routes.ip_hash`, never the raw IP), specifically so a bad submission can
-  be traced back and its network banned from submitting again — see Moderation
-  above. This is a deliberate exception to "fully anonymous": nothing else about
-  a submitter is recorded, the hash can't be reversed to an IP, and it's never
-  returned by any API response.
+  be traced back and its network banned from submitting again. The Report
+  button similarly hashes the *reporter's* IP (`route_reports.ip_hash`) —
+  originally just to dedupe repeat reports from one IP, now also usable via
+  **Ban reporters & restore** to stop a handful of people from conspiring to
+  report-bomb a legitimate route into hiding. Both are a deliberate exception
+  to "fully anonymous": nothing else about a submitter or reporter is
+  recorded, neither hash can be reversed to an IP, and neither is ever
+  returned by any public (non-admin) API response — see Moderation above.
 - No login for contributors by design — submissions are anonymous and public.
 - Back up the database (Turso has snapshots; for the local file, copy `data/routes.db`).
 - Basemap © OpenStreetMap contributors, tiles © Esri.

@@ -210,14 +210,34 @@ export async function getRouteIpHash(
   };
 }
 
-/** Clears a route's hidden-by-reports state (e.g. after a bad-faith report campaign). */
+/**
+ * Clears a route's hidden-by-reports state (e.g. after a bad-faith report
+ * campaign). Also clears its recorded reports — otherwise the same distinct-IP
+ * count that triggered the hide would still be sitting at/above
+ * REPORT_HIDE_THRESHOLD and the very next report (even a duplicate from an IP
+ * that already reported) would immediately re-hide it.
+ */
 export async function unhideRoute(id: string): Promise<boolean> {
   await ensureSchema();
-  const rs = await getClient().execute({
+  const client = getClient();
+  const rs = await client.execute({
     sql: "UPDATE routes SET hidden_at = NULL WHERE id = ?",
     args: [id],
   });
+  if (rs.rowsAffected > 0) {
+    await client.execute({ sql: "DELETE FROM route_reports WHERE route_id = ?", args: [id] });
+  }
   return rs.rowsAffected > 0;
+}
+
+/** Distinct IPs (hashed) that have reported a route, for admin review before banning. */
+export async function getReporterIpHashes(routeId: string): Promise<string[]> {
+  await ensureSchema();
+  const rs = await getClient().execute({
+    sql: "SELECT DISTINCT ip_hash FROM route_reports WHERE route_id = ?",
+    args: [routeId],
+  });
+  return rs.rows.map((r) => (r as unknown as { ip_hash: string }).ip_hash);
 }
 
 export async function isIpBanned(ipHash: string): Promise<boolean> {
@@ -279,4 +299,33 @@ export async function addReport(
   }
 
   return { reportCount, hidden };
+}
+
+/**
+ * Bans every IP that has reported `routeId` (e.g. a coordinated attempt to hide
+ * a legitimate route), clears those reports, and restores the route to public
+ * view — so this both stops the reporters from doing it again and un-does the
+ * hide their reports caused. Returns null if the route doesn't exist;
+ * `bannedCount: 0` if it exists but has no reports on file.
+ */
+export async function banReportersAndRestore(
+  routeId: string,
+  reason: string | null,
+): Promise<{ bannedCount: number } | null> {
+  await ensureSchema();
+  const client = getClient();
+
+  const exists = await client.execute({
+    sql: "SELECT 1 FROM routes WHERE id = ?",
+    args: [routeId],
+  });
+  if (exists.rows.length === 0) return null;
+
+  const ipHashes = await getReporterIpHashes(routeId);
+  for (const ipHash of ipHashes) await banIp(ipHash, reason);
+
+  await client.execute({ sql: "DELETE FROM route_reports WHERE route_id = ?", args: [routeId] });
+  await client.execute({ sql: "UPDATE routes SET hidden_at = NULL WHERE id = ?", args: [routeId] });
+
+  return { bannedCount: ipHashes.length };
 }

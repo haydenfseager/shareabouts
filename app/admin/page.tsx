@@ -147,13 +147,56 @@ export default function AdminPage() {
     [token],
   );
 
+  const banReporters = useCallback(
+    async (id: string, reportCount: number) => {
+      if (!token) {
+        setMessage("Enter the admin token first.");
+        return;
+      }
+      const plural = reportCount === 1 ? "" : "s";
+      if (
+        !confirm(
+          `Ban ${reportCount} reporter IP${plural} and restore this route? Use this only if the reports ` +
+            "look like a coordinated attempt to hide a legitimate route, not genuine abuse.",
+        )
+      ) {
+        return;
+      }
+      setBusyId(id);
+      setMessage(null);
+      try {
+        const res = await fetch(`/api/routes/${id}/ban-reporters`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          bannedCount?: number;
+        };
+        if (!res.ok) throw new Error(data.error ?? `Ban reporters failed (${res.status})`);
+        setRoutes((rs) =>
+          rs.map((r) => (r.id === id ? { ...r, hidden: false, reportCount: 0 } : r)),
+        );
+        setMessage(`Banned ${data.bannedCount ?? 0} reporter IP${plural} and restored ${id}`);
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "Ban reporters failed.");
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [token],
+  );
+
   return (
     <main className="mx-auto max-w-3xl p-6 text-slate-800">
       <h1 className="text-xl font-bold">Route moderation</h1>
       <p className="mt-1 text-sm text-slate-500">
         Remove spam or bad submissions. The token is your <code>ADMIN_TOKEN</code> env var; it is
         kept only in this tab&rsquo;s session storage. With a token entered, Reload also shows
-        reported/hidden routes.
+        reported/hidden routes. If a route was hidden by genuine abuse, use <strong>Unhide</strong>.
+        If it looks like a handful of people coordinated to report-bomb a legitimate route, use{" "}
+        <strong>Ban reporters &amp; restore</strong> instead — it also blocks those IPs from
+        reporting again.
       </p>
 
       <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -234,6 +277,17 @@ export default function AdminPage() {
                   {busyId === r.id ? "Deleting…" : "Delete"}
                 </button>
               </div>
+              {r.reportCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => banReporters(r.id, r.reportCount)}
+                  disabled={busyId === r.id}
+                  title="Ban every reporter's IP and restore this route — for coordinated report-bombing, not genuine abuse"
+                  className="rounded-md border border-amber-400 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                >
+                  Ban reporters &amp; restore
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => ban(r.id)}

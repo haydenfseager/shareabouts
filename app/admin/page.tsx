@@ -1,9 +1,21 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import type { AdminBikeRoute } from "@/lib/types";
 
 const TOKEN_KEY = "shareabouts-admin-token";
+
+// Leaflet touches `window` on import, so the shape preview must never render
+// on the server — same pattern as components/MapClient.tsx.
+const AdminRouteMap = dynamic(() => import("@/components/AdminRouteMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-64 items-center justify-center text-xs text-slate-400">
+      Loading map…
+    </div>
+  ),
+});
 
 export default function AdminPage() {
   const [token, setToken] = useState("");
@@ -11,6 +23,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -230,75 +243,101 @@ export default function AdminPage() {
       </p>
 
       <ul className="mt-2 divide-y divide-slate-200 border-y border-slate-200">
-        {routes.map((r) => (
-          <li key={r.id} className="flex items-start gap-3 py-3 text-sm">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-slate-800">
-                  {r.reason ? `“${r.reason}”` : <span className="text-slate-400">no comment</span>}
-                </p>
-                {r.hidden && (
-                  <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-                    Hidden
-                  </span>
-                )}
-                {r.reportCount > 0 && (
-                  <span className="shrink-0 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
-                    {r.reportCount} report{r.reportCount === 1 ? "" : "s"}
-                  </span>
-                )}
-              </div>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {r.zip ? `ZIP ${r.zip}` : <span className="text-slate-400">ZIP —</span>}
-              </p>
-              <p className="mt-0.5 text-xs text-slate-400">
-                {new Date(r.createdAt).toLocaleString()} · {r.geometry.length} points ·{" "}
-                <span className="font-mono">{r.id}</span>
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-col items-end gap-1.5">
-              <div className="flex gap-1.5">
-                {r.hidden && (
+        {routes.map((r) => {
+          const previewing = previewId === r.id;
+          return (
+            <li key={r.id} className="py-3 text-sm">
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPreviewId((id) => (id === r.id ? null : r.id))}
+                  aria-pressed={previewing}
+                  aria-expanded={previewing}
+                  title="Click to see this route's shape on the map"
+                  className={`min-w-0 flex-1 rounded-md p-1.5 -m-1.5 text-left transition-colors ${
+                    previewing ? "bg-pink-50 ring-2 ring-pink-500" : "hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-slate-800">
+                      {r.reason ? (
+                        `“${r.reason}”`
+                      ) : (
+                        <span className="text-slate-400">no comment</span>
+                      )}
+                    </p>
+                    {r.hidden && (
+                      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                        Hidden
+                      </span>
+                    )}
+                    {r.reportCount > 0 && (
+                      <span className="shrink-0 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                        {r.reportCount} report{r.reportCount === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {r.zip ? `ZIP ${r.zip}` : <span className="text-slate-400">ZIP —</span>}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    {new Date(r.createdAt).toLocaleString()} · {r.geometry.length} points ·{" "}
+                    <span className="font-mono">{r.id}</span> ·{" "}
+                    <span className="font-medium text-cyan-700">
+                      {previewing ? "hide shape ▲" : "view shape ▼"}
+                    </span>
+                  </p>
+                </button>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <div className="flex gap-1.5">
+                    {r.hidden && (
+                      <button
+                        type="button"
+                        onClick={() => unhide(r.id)}
+                        disabled={busyId === r.id}
+                        className="rounded-md border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        {busyId === r.id ? "…" : "Unhide"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => remove(r.id)}
+                      disabled={busyId === r.id}
+                      className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {busyId === r.id ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
+                  {r.reportCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => banReporters(r.id, r.reportCount)}
+                      disabled={busyId === r.id}
+                      title="Ban every reporter's IP and restore this route — for coordinated report-bombing, not genuine abuse"
+                      className="rounded-md border border-amber-400 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                    >
+                      Ban reporters &amp; restore
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => unhide(r.id)}
+                    onClick={() => ban(r.id)}
                     disabled={busyId === r.id}
-                    className="rounded-md border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                    className="rounded-md bg-red-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
                   >
-                    {busyId === r.id ? "…" : "Unhide"}
+                    Ban &amp; Delete
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => remove(r.id)}
-                  disabled={busyId === r.id}
-                  className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                >
-                  {busyId === r.id ? "Deleting…" : "Delete"}
-                </button>
+                </div>
               </div>
-              {r.reportCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => banReporters(r.id, r.reportCount)}
-                  disabled={busyId === r.id}
-                  title="Ban every reporter's IP and restore this route — for coordinated report-bombing, not genuine abuse"
-                  className="rounded-md border border-amber-400 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
-                >
-                  Ban reporters &amp; restore
-                </button>
+              {previewing && (
+                <div className="mt-2">
+                  <AdminRouteMap geometry={r.geometry} />
+                </div>
               )}
-              <button
-                type="button"
-                onClick={() => ban(r.id)}
-                disabled={busyId === r.id}
-                className="rounded-md bg-red-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
-              >
-                Ban &amp; Delete
-              </button>
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </main>
   );

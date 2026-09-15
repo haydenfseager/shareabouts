@@ -169,6 +169,7 @@ components/
   MapClient.tsx            ssr:false dynamic wrapper
   BikeMap.tsx              map, heat layer, stress overlay, draw tool, report button
   Sidebar.tsx              intro, count, rankings, overlay toggle, recent reasons
+  AdminRouteMap.tsx        /admin's per-route shape preview (ssr:false, dynamically imported)
 lib/
   geo.ts                   Boston config, haversine, sampleLine
   boston-boundary.ts       city-limits polygon + point-in-polygon helpers
@@ -230,6 +231,10 @@ Four layers, in order of when they kick in:
 3. **`/admin`** — paste the `ADMIN_TOKEN` (kept only in that tab's session
    storage) and Reload to see everything, including hidden/reported routes and
    their report counts. From there:
+   - **Click a route** — expands an inline map (`components/AdminRouteMap.tsx`)
+     fit to that route's own shape, so you can eyeball whether it's a
+     plausible corridor or something drawn to be an inappropriate shape
+     before deciding to ban it. Only one preview is open at a time.
    - **Delete** — remove a route.
    - **Ban & Delete** — block the route's *submitter* (by hashed IP) from
      submitting again, and remove the route.

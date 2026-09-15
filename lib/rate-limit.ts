@@ -15,6 +15,16 @@ export function clientIp(request: Request): string {
 }
 
 /**
+ * Salted SHA-256 of a client IP. Never store or log the raw IP — this hash is
+ * what goes in `rate_hits`, `routes.ip_hash` and `banned_ips`, so rate limiting,
+ * per-route attribution and bans all agree on the same identity for the same IP.
+ */
+export function hashIp(ip: string): string {
+  const salt = process.env.RATE_LIMIT_SALT ?? "shareabouts-boston-bike-lanes";
+  return createHash("sha256").update(`${salt}|${ip}`).digest("hex");
+}
+
+/**
  * Record a hit for this IP and report whether it is within the limit. State
  * lives in the `rate_hits` table so it holds across serverless instances; rows
  * older than the window are pruned on each call. The IP is stored only as a
@@ -24,8 +34,7 @@ export async function checkRateLimit(ip: string): Promise<RateLimitResult> {
   await ensureSchema();
   const client = getClient();
 
-  const salt = process.env.RATE_LIMIT_SALT ?? "shareabouts-boston-bike-lanes";
-  const ipHash = createHash("sha256").update(`${salt}|${ip}`).digest("hex");
+  const ipHash = hashIp(ip);
   const now = Date.now();
   const cutoff = now - WINDOW_MS;
 

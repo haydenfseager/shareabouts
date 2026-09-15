@@ -429,6 +429,12 @@ export default function BikeMap() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [outsideHint, setOutsideHint] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  // Reporting the currently-selected route. reportedRouteId flips the chip's
+  // button to a disabled "Reported" state; it's fine for that to reset on its
+  // own when a different route is selected (the id just won't match).
+  const [reportedRouteId, setReportedRouteId] = useState<string | null>(null);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
   // Ranked-neighborhood highlight. Mutually exclusive with a route highlight and
   // with the "routes near here" panel.
   const [selectedNeighborhood, setSelectedNeighborhood] = useState<string | null>(null);
@@ -666,7 +672,23 @@ export default function BikeMap() {
 
   const selectRoute = useCallback((id: string) => {
     setSelectedNeighborhood(null);
+    setReportError(null);
     setSelectedRouteId((current) => (current === id ? null : id));
+  }, []);
+
+  const reportRoute = useCallback(async (id: string) => {
+    setReportBusy(true);
+    setReportError(null);
+    try {
+      const res = await fetch(`/api/routes/${id}/report`, { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `Report failed (${res.status})`);
+      setReportedRouteId(id);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : "Report failed.");
+    } finally {
+      setReportBusy(false);
+    }
   }, []);
 
   // Route and neighborhood highlights are mutually exclusive; picking one clears
@@ -1025,28 +1047,39 @@ export default function BikeMap() {
         )}
 
         {mode === "view" && selectedRoute && (
-          <div className="absolute left-3 top-3 z-[1000] flex max-w-[min(20rem,calc(100%-1.5rem))] items-start gap-2 rounded-lg bg-white p-3 shadow-xl ring-1 ring-pink-200">
-            <div className="min-w-0">
-              <p className="text-xs leading-snug text-slate-700">
-                {selectedRoute.reason ? `“${selectedRoute.reason}”` : "This route"}
-              </p>
-              <p className="mt-1 text-[10px] text-slate-400">
-                {new Date(selectedRoute.createdAt).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}{" "}
-                · {meters(lineLength(selectedRoute.geometry))}
-              </p>
+          <div className="absolute left-3 top-3 z-[1000] flex max-w-[min(20rem,calc(100%-1.5rem))] flex-col gap-1.5 rounded-lg bg-white p-3 shadow-xl ring-1 ring-pink-200">
+            <div className="flex items-start gap-2">
+              <div className="min-w-0">
+                <p className="text-xs leading-snug text-slate-700">
+                  {selectedRoute.reason ? `“${selectedRoute.reason}”` : "This route"}
+                </p>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {new Date(selectedRoute.createdAt).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}{" "}
+                  · {meters(lineLength(selectedRoute.geometry))}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedRouteId(null)}
+                aria-label="Clear highlight"
+                className="-mr-1 -mt-1 shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                ✕
+              </button>
             </div>
             <button
               type="button"
-              onClick={() => setSelectedRouteId(null)}
-              aria-label="Clear highlight"
-              className="-mr-1 -mt-1 shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              onClick={() => reportRoute(selectedRoute.id)}
+              disabled={reportBusy || reportedRouteId === selectedRoute.id}
+              className="self-start text-[11px] font-medium text-slate-400 hover:text-red-600 disabled:cursor-default disabled:text-emerald-600 disabled:hover:text-emerald-600"
             >
-              ✕
+              {reportedRouteId === selectedRoute.id ? "Reported ✓ — thank you" : "Report this route"}
             </button>
+            {reportError && <p className="text-[11px] text-red-600">{reportError}</p>}
           </div>
         )}
 

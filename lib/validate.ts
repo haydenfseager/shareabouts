@@ -1,5 +1,6 @@
 import { lineLength, type LatLng } from "./geo";
 import { routeInsideBoston } from "./boston-boundary";
+import { containsBlockedContent } from "./moderation";
 
 export const MAX_REASON_LENGTH = 280;
 export const MAX_VERTICES = 200;
@@ -66,6 +67,9 @@ export function parseRouteInput(body: unknown): Result {
     const trimmed = reason.trim();
     if (trimmed.length > MAX_REASON_LENGTH) {
       return { ok: false, error: `Reason must be ${MAX_REASON_LENGTH} characters or fewer.` };
+    }
+    if (trimmed && containsBlockedContent(trimmed)) {
+      return { ok: false, error: "That comment couldn't be published. Please keep it respectful." };
     }
     cleanReason = trimmed || null;
   }

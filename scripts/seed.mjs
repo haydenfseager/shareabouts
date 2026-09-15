@@ -27,6 +27,8 @@ await db.execute(`
     geometry   TEXT NOT NULL,
     reason     TEXT,
     zip        TEXT,
+    ip_hash    TEXT,
+    hidden_at  TEXT,
     created_at TEXT NOT NULL
   )
 `);

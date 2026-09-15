@@ -1,17 +1,38 @@
 import { NextResponse } from "next/server";
-import { insertRoute, listRoutes } from "@/lib/db";
-import { checkRateLimit, clientIp } from "@/lib/rate-limit";
+import { checkAdmin } from "@/lib/admin";
+import { insertRoute, isIpBanned, listRoutes, listRoutesForAdmin } from "@/lib/db";
+import { checkRateLimit, clientIp, hashIp } from "@/lib/rate-limit";
 import { parseRouteInput } from "@/lib/validate";
 
 // Contributions change the data on every POST, so never cache these responses.
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const wantsAll = new URL(request.url).searchParams.get("all") === "1";
+
+  if (wantsAll) {
+    const auth = checkAdmin(request);
+    if (auth !== "ok") {
+      return NextResponse.json({ error: "Not authorized." }, { status: 401 });
+    }
+    const routes = await listRoutesForAdmin();
+    return NextResponse.json({ routes, count: routes.length });
+  }
+
   const routes = await listRoutes();
   return NextResponse.json({ routes, count: routes.length });
 }
 
 export async function POST(request: Request) {
+  const ipHash = hashIp(clientIp(request));
+
+  if (await isIpBanned(ipHash)) {
+    return NextResponse.json(
+      { error: "This network has been blocked from submitting." },
+      { status: 403 },
+    );
+  }
+
   const limit = await checkRateLimit(clientIp(request));
   if (!limit.ok) {
     return NextResponse.json(
@@ -32,6 +53,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error }, { status: 422 });
   }
 
-  const route = await insertRoute(parsed.value.geometry, parsed.value.reason, parsed.value.zip);
+  const route = await insertRoute(
+    parsed.value.geometry,
+    parsed.value.reason,
+    parsed.value.zip,
+    ipHash,
+  );
   return NextResponse.json({ route }, { status: 201 });
 }

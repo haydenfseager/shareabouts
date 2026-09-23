@@ -32,6 +32,7 @@ import {
   DEFAULT_ZOOM,
   MAX_ZOOM,
   MIN_ZOOM,
+  SAMPLE_SPACING_M,
   haversine,
   lineLength,
   sampleLine,
@@ -72,10 +73,13 @@ const WORLD_RING: LatLng[] = [
   [85, -179.9],
 ];
 
+const HEAT_MAX_ZOOM = 17;
+
 const HEAT_OPTIONS: L.HeatMapOptions = {
-  minOpacity: 0.3,
-  max: 3,
-  maxZoom: 17,
+  // Kept low so the scattered one-off routes stay a faint wash instead of
+  // stacking into a solid carpet at wide zooms. `max` is set per zoom below.
+  minOpacity: 0.1,
+  maxZoom: HEAT_MAX_ZOOM,
   gradient: {
     0.2: "#1d4ed8",
     0.4: "#0891b2",
@@ -93,12 +97,48 @@ const HEAT_BASE_ZOOM = 13;
 const HEAT_BASE_RADIUS = 18;
 const HEAT_BASE_BLUR = 22;
 
-function heatSizeForZoom(zoom: number): { radius: number; blur: number } {
-  const factor = zoom >= HEAT_BASE_ZOOM ? 1 : 2 ** ((zoom - HEAT_BASE_ZOOM) * 0.6);
-  return {
-    radius: Math.max(6, Math.round(HEAT_BASE_RADIUS * factor)),
-    blur: Math.max(8, Math.round(HEAT_BASE_BLUR * factor)),
-  };
+// A fixed `max` drifts with zoom: leaflet.heat bins points into cells sized off
+// the radius and damps each one by 2^(maxZoom - zoom), so the same data reads
+// saturated at one zoom and washed out at another. Instead, the scale tops out
+// at HEAT_PEAK_SHARE of the hottest cell at the current zoom (overlapping
+// circles add up, so the busiest corridors — not just the single peak — reach
+// red), but never below HEAT_MIN_PEAK_ROUTES routes' worth, so a handful of
+// submissions doesn't paint one lone route red.
+const HEAT_PEAK_SHARE = 0.25;
+const HEAT_MIN_PEAK_ROUTES = 4;
+
+type HeatScale = { radius: number; blur: number; max: number };
+
+function heatScaleForZoom(map: L.Map, points: HeatPoint[]): HeatScale {
+  const zoom = map.getZoom();
+  const factor = zoom >= HEAT_BASE_ZOOM ? 1 : 2 ** ((zoom - HEAT_BASE_ZOOM) * 0.8);
+  const radius = Math.max(5, Math.round(HEAT_BASE_RADIUS * factor));
+  const blur = Math.max(6, Math.round(HEAT_BASE_BLUR * factor));
+
+  // Mirror leaflet.heat's binning: cells of (radius + blur) / 2 px, each point
+  // weighted 1 / 2^(maxZoom - zoom). Projecting the whole data set (not just
+  // the viewport) keeps the colors stable while panning.
+  const cell = (radius + blur) / 2;
+  const weight = 1 / 2 ** Math.max(0, Math.min(HEAT_MAX_ZOOM - zoom, 12));
+  const cells = new Map<string, number>();
+  let peak = 0;
+  for (const [lat, lng] of points) {
+    const p = map.project([lat, lng], zoom);
+    const key = `${Math.floor(p.x / cell)},${Math.floor(p.y / cell)}`;
+    const sum = (cells.get(key) ?? 0) + weight;
+    cells.set(key, sum);
+    if (sum > peak) peak = sum;
+  }
+
+  // What one route running straight through a cell contributes.
+  const center = map.project(map.getCenter(), zoom);
+  const cellMeters = map.distance(
+    map.unproject(center, zoom),
+    map.unproject(center.add([cell, 0]), zoom),
+  );
+  const perRoute = (cellMeters / SAMPLE_SPACING_M) * weight;
+
+  return { radius, blur, max: Math.max(peak * HEAT_PEAK_SHARE, perRoute * HEAT_MIN_PEAK_ROUTES) };
 }
 
 // "Routes near here": a background tap in view mode collects every route whose
@@ -165,7 +205,7 @@ function HeatLayer({ points }: { points: LatLng[] }) {
       }
       const layer = L.heatLayer(dataRef.current, {
         ...HEAT_OPTIONS,
-        ...heatSizeForZoom(map.getZoom()),
+        ...heatScaleForZoom(map, dataRef.current),
       }) as HeatLayerInternal;
       layer.addTo(map);
       layerRef.current = layer;
@@ -197,16 +237,19 @@ function HeatLayer({ points }: { points: LatLng[] }) {
   useEffect(() => {
     dataRef.current = points.map(([lat, lng]) => [lat, lng, 1] as HeatPoint);
     if (layerRef.current && map.getSize().x > 0) {
+      // Both queue the same debounced redraw, so this draws once.
       layerRef.current.setLatLngs(dataRef.current);
+      layerRef.current.setOptions(heatScaleForZoom(map, dataRef.current));
     }
   }, [points, map]);
 
-  // Rescale the heat radius/blur to the current zoom (setOptions redraws).
+  // Rescale the heat radius/blur/max to the current zoom (setOptions redraws).
   useEffect(() => {
-    const applySize = () => layerRef.current?.setOptions(heatSizeForZoom(map.getZoom()));
-    map.on("zoomend", applySize);
+    const applyScale = () =>
+      layerRef.current?.setOptions(heatScaleForZoom(map, dataRef.current));
+    map.on("zoomend", applyScale);
     return () => {
-      map.off("zoomend", applySize);
+      map.off("zoomend", applyScale);
     };
   }, [map]);
 

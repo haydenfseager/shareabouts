@@ -39,12 +39,15 @@ export function lineLength(points: LatLng[]): number {
   return total;
 }
 
+/** Default spacing (m) between the points `sampleLine` emits along a route. */
+export const SAMPLE_SPACING_M = 25;
+
 /**
  * Walk along a polyline and emit a point every `spacingMeters`. Feeding these
  * evenly-spaced points into a heat layer means long routes and short routes
  * contribute proportionally, and corridors drawn by many people stack up hot.
  */
-export function sampleLine(points: LatLng[], spacingMeters = 25): LatLng[] {
+export function sampleLine(points: LatLng[], spacingMeters = SAMPLE_SPACING_M): LatLng[] {
   if (points.length < 2) return points.slice();
 
   const out: LatLng[] = [points[0]];
